@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SolarMonitor-RTL - FFT Heatmap Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.95;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .controls {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            border-left: 4px solid #667eea;
+        }
+
+        .controls h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.3em;
+        }
+
+        .control-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .control-group label {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 0.95em;
+        }
+
+        .control-group input,
+        .control-group select {
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 1em;
+            transition: all 0.3s ease;
+            background: white;
+        }
+
+        .control-group input:focus,
+        .control-group select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            flex: 1;
+            min-width: 150px;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: #e0e0e0;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background: #d0d0d0;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.95em;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.healthy {
+            background: #4caf50;
+        }
+
+        .status-dot.degraded {
+            background: #ff9800;
+        }
+
+        .status-dot.unhealthy {
+            background: #f44336;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .heatmap-container {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 8px;
+            text-align: center;
+            min-height: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 30px;
+        }
+
+        .heatmap-image {
+            max-width: 100%;
+            height: auto;
+            border-radius: 6px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+        }
+
+        .loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #c62828;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .error.show {
+            display: block;
+        }
+
+        .info {
+            background: #e3f2fd;
+            color: #1565c0;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #1565c0;
+            margin-top: 20px;
+            font-size: 0.9em;
+        }
+
+        .footer {
+            background: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            color: #666;
+            border-top: 1px solid #e0e0e0;
+            font-size: 0.9em;
+        }
+
+        .quick-presets {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .preset-btn {
+            padding: 8px 16px;
+            background: #e0e0e0;
+            border: 2px solid transparent;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .preset-btn:hover,
+        .preset-btn.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+
+            .control-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .button-group {
+                flex-direction: column;
+            }
+
+            .btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>📡 RTL-SDR Frequency Monitor</h1>
+            <p>FFT Spektrum Heatmap Dashboard</p>
+        </div>
+
+        <!-- Main Content -->
+        <div class="content">
+            <!-- Error Message -->
+            <div class="error" id="errorMessage"></div>
+
+            <!-- Controls Section -->
+            <div class="controls">
+                <h2>⚙️ Einstellungen</h2>
+
+                <!-- Status -->
+                <div class="status" id="healthStatus">
+                    <div class="status-dot healthy"></div>
+                    <span>Verbunden</span>
+                </div>
+
+                <!-- Quick Presets -->
+                <div class="quick-presets" style="margin-top: 15px;">
+                    <button class="preset-btn active" data-range="24h">24 Stunden</button>
+                    <button class="preset-btn" data-range="7d">7 Tage</button>
+                    <button class="preset-btn" data-range="30d">30 Tage</button>
+                    <button class="preset-btn" data-range="1h">1 Stunde</button>
+                    <button class="preset-btn" data-range="6h">6 Stunden</button>
+                </div>
+
+                <!-- Control Grid -->
+                <div class="control-grid" style="margin-top: 20px;">
+                    <div class="control-group">
+                        <label for="timeRange">Zeitraum</label>
+                        <select id="timeRange">
+                            <option value="1h">1 Stunde</option>
+                            <option value="6h">6 Stunden</option>
+                            <option value="24h" selected>24 Stunden</option>
+                            <option value="7d">7 Tage</option>
+                            <option value="30d">30 Tage</option>
+                        </select>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="freqStart">Start-Frequenz (MHz)</label>
+                        <input type="number" id="freqStart" placeholder="z.B. 100" step="0.1">
+                    </div>
+
+                    <div class="control-group">
+                        <label for="freqEnd">End-Frequenz (MHz)</label>
+                        <input type="number" id="freqEnd" placeholder="z.B. 1000" step="0.1">
+                    </div>
+
+                    <div class="control-group">
+                        <label for="colormap">Farbschema</label>
+                        <select id="colormap">
+                            <option value="viridis" selected>Viridis</option>
+                            <option value="plasma">Plasma</option>
+                            <option value="inferno">Inferno</option>
+                            <option value="magma">Magma</option>
+                            <option value="jet">Jet</option>
+                            <option value="hot">Hot</option>
+                            <option value="cool">Cool</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Buttons -->
+                <div class="button-group" style="margin-top: 20px;">
+                    <button class="btn btn-primary" id="generateBtn">📊 Heatmap generieren</button>
+                    <button class="btn btn-secondary" id="downloadBtn">⬇️ Download</button>
+                </div>
+            </div>
+
+            <!-- Heatmap Display -->
+            <div class="heatmap-container" id="heatmapContainer">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>Warte auf erste Heatmap...</p>
+                </div>
+            </div>
+
+            <!-- Info Section -->
+            <div class="info" id="infoText">
+                Wählen Sie einen Zeitraum und klicken Sie auf "Heatmap generieren" um zu starten.
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p>🔧 SolarMonitor-RTL v1.0 | RTL-SDR Frequency Monitoring System</p>
+            <p>Raspberry Pi 4B + RTL2838 USB Dongle | InfluxDB Time-Series Data</p>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_BASE = '/api';
+        let currentImageData = null;
+
+        // Elements
+        const timeRangeSelect = document.getElementById('timeRange');
+        const freqStartInput = document.getElementById('freqStart');
+        const freqEndInput = document.getElementById('freqEnd');
+        const colormapSelect = document.getElementById('colormap');
+        const generateBtn = document.getElementById('generateBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const heatmapContainer = document.getElementById('heatmapContainer');
+        const errorMessage = document.getElementById('errorMessage');
+        const healthStatus = document.getElementById('healthStatus');
+        const infoText = document.getElementById('infoText');
+        const presetButtons = document.querySelectorAll('.preset-btn');
+
+        // Event Listeners
+        generateBtn.addEventListener('click', generateHeatmap);
+        downloadBtn.addEventListener('click', downloadHeatmap);
+
+        presetButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                presetButtons.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                timeRangeSelect.value = btn.dataset.range;
+                generateHeatmap();
+            });
+        });
+
+        timeRangeSelect.addEventListener('change', () => {
+            updatePresetButtons();
+        });
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            checkHealth();
+            // Aktualisiere Health-Status alle 30 Sekunden
+            setInterval(checkHealth, 30000);
+        });
+
+        /**
+         * Health-Check durchführen
+         */
+        async function checkHealth() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+
+                const statusDot = healthStatus.querySelector('.status-dot');
+                const statusText = healthStatus.querySelector('span');
+
+                if (data.status === 'healthy') {
+                    statusDot.className = 'status-dot healthy';
+                    statusText.textContent = 'Verbunden';
+                } else if (data.status === 'degraded') {
+                    statusDot.className = 'status-dot degraded';
+                    statusText.textContent = 'Verbindung eingeschränkt';
+                } else {
+                    statusDot.className = 'status-dot unhealthy';
+                    statusText.textContent = 'Nicht verbunden';
+                }
+            } catch (e) {
+                const statusDot = healthStatus.querySelector('.status-dot');
+                statusDot.className = 'status-dot unhealthy';
+                console.error('Health-Check Fehler:', e);
+            }
+        }
+
+        /**
+         * Aktualisiere Preset-Buttons basierend auf aktuellem Zeitraum
+         */
+        function updatePresetButtons() {
+            const currentRange = timeRangeSelect.value;
+            presetButtons.forEach(btn => {
+                if (btn.dataset.range === currentRange) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+        }
+
+        /**
+         * Generiere Heatmap vom Server
+         */
+        async function generateHeatmap() {
+            showLoading();
+            clearError();
+
+            try {
+                const params = new URLSearchParams({
+                    time_range: timeRangeSelect.value,
+                    cmap: colormapSelect.value,
+                    format: 'json'
+                });
+
+                const freqStart = parseFloat(freqStartInput.value);
+                const freqEnd = parseFloat(freqEndInput.value);
+
+                if (!isNaN(freqStart)) params.append('freq_start', freqStart);
+                if (!isNaN(freqEnd)) params.append('freq_end', freqEnd);
+
+                const response = await fetch(`${API_BASE}/heatmap?${params}`);
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || `HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (data.status === 'success' && data.data) {
+                    currentImageData = data.data;
+                    displayHeatmap(data);
+                    updateInfo(data);
+                } else {
+                    throw new Error(data.message || 'Unbekannter Fehler');
+                }
+
+            } catch (error) {
+                showError(`Fehler beim Generieren der Heatmap: ${error.message}`);
+                console.error(error);
+            }
+        }
+
+        /**
+         * Zeige Heatmap im Container an
+         */
+        function displayHeatmap(data) {
+            const img = document.createElement('img');
+            img.src = `data:image/png;base64,${data.data}`;
+            img.className = 'heatmap-image';
+            img.alt = 'FFT Spektrum Heatmap';
+
+            heatmapContainer.innerHTML = '';
+            heatmapContainer.appendChild(img);
+        }
+
+        /**
+         * Aktualisiere Info-Text
+         */
+        function updateInfo(data) {
+            let infoStr = `✅ Heatmap generiert für Zeitraum: <strong>${data.time_range}</strong>`;
+
+            if (data.freq_start !== null && data.freq_end !== null) {
+                infoStr += ` | Frequenzbereich: <strong>${data.freq_start} - ${data.freq_end} MHz</strong>`;
+            }
+
+            infoStr += ` | Farbschema: <strong>${data.cmap}</strong> | Zeit: <strong>${new Date(data.timestamp).toLocaleString('de-DE')}</strong>`;
+
+            infoText.innerHTML = infoStr;
+        }
+
+        /**
+         * Download Heatmap als PNG
+         */
+        function downloadHeatmap() {
+            if (!currentImageData) {
+                showError('Keine Heatmap zum Download verfügbar. Generieren Sie zuerst eine Heatmap.');
+                return;
+            }
+
+            try {
+                const link = document.createElement('a');
+                link.href = `data:image/png;base64,${currentImageData}`;
+                link.download = `heatmap-${timeRangeSelect.value}-${new Date().toISOString().slice(0, 10)}.png`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } catch (error) {
+                showError(`Fehler beim Download: ${error.message}`);
+            }
+        }
+
+        /**
+         * UI Helper Funktionen
+         */
+        function showLoading() {
+            heatmapContainer.innerHTML = `
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>Generiere Heatmap...</p>
+                </div>
+            `;
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.add('show');
+        }
+
+        function clearError() {
+            errorMessage.classList.remove('show');
+        }
+    </script>
+</body>
+</html>

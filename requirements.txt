@@ -3,4 +3,8 @@ influxdb
 flask
 flask-cors
 requests
-rtl-sdr
+pyrtlsdr
+numpy
+matplotlib
+scipy
+pillow
