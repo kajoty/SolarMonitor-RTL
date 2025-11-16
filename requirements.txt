@@ -1,0 +1,6 @@
+python-dotenv
+influxdb
+flask
+flask-cors
+requests
+rtl-sdr
