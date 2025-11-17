@@ -82,24 +82,63 @@ class RTLSDRScanner:
     # RTL2838 Tuner Frequenzbereich: 24-1766 MHz (praktisch: 50-1500 MHz)
     # Index basiert auf .env MONITORED_BANDS Konfiguration
     COMMON_BANDS = [
+        # === VHF Bänder (46-230 MHz) ===
         # Index 0
-        FrequencyBand("FM Radio", 87.5, 108.0, "UKW Rundfunk / FM Broadcast"),
+        FrequencyBand("VHF I (46-68 MHz)", 46.0, 68.0, "Analog TV Band I / DAB / PMR"),
         # Index 1
-        FrequencyBand("VHF I", 46.0, 68.0, "Analog TV Band I / DAB"),
+        FrequencyBand("FM Radio (87.5-108 MHz)", 87.5, 108.0, "UKW Rundfunk / FM Broadcast"),
         # Index 2
-        FrequencyBand("VHF II", 87.5, 108.0, "FM Broadcast (VHF II)"),
+        FrequencyBand("VHF III (174-230 MHz)", 174.0, 230.0, "Analog TV Band III / DVB-T"),
+        
+        # === UHF Bänder (470-862 MHz) - DVB-T Hauptbänder ===
         # Index 3
-        FrequencyBand("VHF III", 174.0, 230.0, "Analog TV Band III / DVB-T I-IV"),
+        FrequencyBand("UHF IV (470-606 MHz)", 470.0, 606.0, "DVB-T Band IV / Digitales TV"),
         # Index 4
-        FrequencyBand("UHF IV", 470.0, 606.0, "DVB-T Band IV (Hauptband)"),
+        FrequencyBand("UHF V (606-862 MHz)", 606.0, 862.0, "DVB-T Band V / Digitales TV"),
+        
+        # === Mobilfunk Bänder (890-2100 MHz) ===
         # Index 5
-        FrequencyBand("UHF V", 606.0, 862.0, "DVB-T Band V (Hauptband)"),
+        FrequencyBand("GSM-900 (890-960 MHz)", 890.0, 960.0, "Mobilfunk D1/D2 / Tetra"),
         # Index 6
-        FrequencyBand("GSM-900", 890.0, 960.0, "Mobilfunk D1/D2 (GSM-900)"),
+        FrequencyBand("GSM-1800 (1710-1880 MHz)", 1710.0, 1880.0, "Mobilfunk D3 / LTE Band 3"),
+        
+        # === ISM & Spezial (2.4 GHz) ===
         # Index 7
-        FrequencyBand("GSM-1800", 1710.0, 1880.0, "Mobilfunk D3 (GSM-1800)"),
+        FrequencyBand("ISM 2.4 GHz (2400-2500 MHz)", 2400.0, 2500.0, "WLAN / Bluetooth / Zigbee"),
+        
+        # === Detaillierte VHF Sub-Bänder ===
         # Index 8
-        FrequencyBand("ISM 2.4 GHz", 2400.0, 2500.0, "WLAN / Bluetooth / ISM-Band"),
+        FrequencyBand("VHF I (46-54 MHz)", 46.0, 54.0, "Analog TV Band I"),
+        # Index 9
+        FrequencyBand("VHF I (54-68 MHz)", 54.0, 68.0, "DAB / PMR"),
+        # Index 10
+        FrequencyBand("FM Low (87.5-97.5 MHz)", 87.5, 97.5, "UKW Rundfunk unten"),
+        # Index 11
+        FrequencyBand("FM High (97.5-108 MHz)", 97.5, 108.0, "UKW Rundfunk oben"),
+        # Index 12
+        FrequencyBand("VHF III Low (174-192 MHz)", 174.0, 192.0, "Analog TV Kanäle 5-7"),
+        # Index 13
+        FrequencyBand("VHF III High (192-230 MHz)", 192.0, 230.0, "Analog TV Kanäle 8-12"),
+        
+        # === Detaillierte UHF Sub-Bänder ===
+        # Index 14
+        FrequencyBand("UHF IV Low (470-534 MHz)", 470.0, 534.0, "DVB-T Kanäle 21-32"),
+        # Index 15
+        FrequencyBand("UHF IV High (534-606 MHz)", 534.0, 606.0, "DVB-T Kanäle 32-38"),
+        # Index 16
+        FrequencyBand("UHF V Low (606-710 MHz)", 606.0, 710.0, "DVB-T Kanäle 39-48"),
+        # Index 17
+        FrequencyBand("UHF V High (710-862 MHz)", 710.0, 862.0, "DVB-T Kanäle 48-60"),
+        
+        # === Weitere Bänder ===
+        # Index 18
+        FrequencyBand("Rundfunk (50-100 MHz)", 50.0, 100.0, "VHF Rundfunk und TV Band I"),
+        # Index 19
+        FrequencyBand("TV analog (100-230 MHz)", 100.0, 230.0, "TV Band II + III"),
+        # Index 20
+        FrequencyBand("Digital TV (470-862 MHz)", 470.0, 862.0, "DVB-T Vollständig"),
+        # Index 21
+        FrequencyBand("PMR/Funk (400-500 MHz)", 400.0, 500.0, "PMR / Freifunk / Funkgeräte"),
     ]
     
     def __init__(self, rtl_device_index: int = 0, sample_rate: int = 2000000, 
