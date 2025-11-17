@@ -254,7 +254,7 @@ class RTLSDRScanner:
             import rtlsdr
             
             start_time = datetime.now()
-            num_frequencies = 150  # Feine Auflösung für bessere Frequenzauflösung
+            num_frequencies = 1000  # Ultra-feine Auflösung für Solar Radio Burst Detektion
             
             frequencies = np.linspace(band.freq_start, band.freq_end, num_frequencies)
             power_values = []
