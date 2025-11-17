@@ -11,6 +11,7 @@ import logging
 from datetime import datetime, timedelta
 import io
 import threading
+import requests
 
 # Lade Umgebungsvariablen
 load_dotenv()
@@ -76,57 +77,66 @@ def write_scan_to_influxdb(results):
         return False
     
     try:
-        points = []
-        timestamp = datetime.utcnow().isoformat() + 'Z'
+        lines = []
+        timestamp_ns = int(datetime.utcnow().timestamp() * 1e9)
         
         for result in results:
-            # Schreibe Gesamtband-Statistik als frequency_scan
-            point_scan = {
-                "measurement": "frequency_scan",
-                "tags": {
-                    "band_name": result.band.name,
-                    "active": str(result.active)
-                },
-                "fields": {
-                    "freq_start": float(result.band.freq_start),
-                    "freq_end": float(result.band.freq_end),
-                    "avg_power": float(result.avg_power),
-                    "peak_power": float(result.peak_power),
-                    "noise_floor": float(result.noise_floor),
-                    "signal_to_noise": float(result.signal_to_noise),
-                    "activity_percentage": float(result.activity_percentage),
-                    "num_peaks": int(result.num_peaks),
-                    "scan_time": float(result.scan_time)
-                },
-                "time": timestamp
-            }
-            points.append(point_scan)
+            # Escape band name für InfluxDB Line-Protokoll
+            band_name_escaped = result.band.name.replace(' ', '\\ ').replace('(', '\\(').replace(')', '\\)')
             
-            # Schreibe auch Spektrum-Daten für Heatmap-Generator
-            # Nutze die Mittenfrequenz des Bandes
-            freq_center = (result.band.freq_start + result.band.freq_end) / 2
-            point_spectrum = {
-                "measurement": "frequency_spectrum",
-                "tags": {
-                    "band_name": result.band.name
-                },
-                "fields": {
-                    "frequency": float(freq_center),  # Frequenz als Field
-                    "power": float(result.avg_power)  # Durchschnittliche Leistung
-                },
-                "time": timestamp
-            }
-            points.append(point_spectrum)
+            # Schreibe Gesamtband-Statistik als frequency_scan via Line-Protokoll
+            line_scan = (f"frequency_scan,band_name={band_name_escaped},active={result.active} "
+                        f"freq_start={float(result.band.freq_start)},"
+                        f"freq_end={float(result.band.freq_end)},"
+                        f"avg_power={float(result.avg_power)},"
+                        f"peak_power={float(result.peak_power)},"
+                        f"noise_floor={float(result.noise_floor)},"
+                        f"signal_to_noise={float(result.signal_to_noise)},"
+                        f"activity_percentage={float(result.activity_percentage)},"
+                        f"num_peaks={int(result.num_peaks)},"
+                        f"scan_time={float(result.scan_time)} {timestamp_ns}")
+            lines.append(line_scan)
+            
+            # Schreibe Spektrum-Daten für Heatmap-Generator (alle 1000 Frequenzen) via Line-Protokoll
+            logger.debug(f"Frequenzen: {result.frequencies is not None}, Shape: {result.frequencies.shape if result.frequencies is not None else 'N/A'}")
+            logger.debug(f"Power-Werte: {result.power_values is not None}, Shape: {result.power_values.shape if result.power_values is not None else 'N/A'}")
+            
+            if result.frequencies is not None and result.power_values is not None:
+                spectrum_count = 0
+                for i, (freq, power) in enumerate(zip(result.frequencies, result.power_values)):
+                    # InfluxDB Line-Protokoll: measurement[,tag=value] field=value[,field=value] [timestamp]
+                    line_spectrum = (f"frequency_spectrum,band_name={band_name_escaped} "
+                                    f"frequency={float(freq)},power={float(power)} {timestamp_ns + i}")
+                    lines.append(line_spectrum)
+                    spectrum_count += 1
+                logger.info(f"Spektrum-Punkte hinzugefügt: {spectrum_count}")
+            else:
+                logger.warning("Frequenzen oder Power-Werte sind None!")
         
-        if points:
-            influxdb_client.write_points(points)
-            logger.info(f"Geschrieben: {len(points)} Scan-Ergebnisse in InfluxDB")
-            return True
-    except Exception as e:
-        logger.error(f"Fehler beim Schreiben in InfluxDB: {e}")
+        if lines:
+            # Sende alle Lines zu InfluxDB via HTTP Line-Protokoll
+            host = os.getenv('INFLUXDB_HOST', 'localhost')
+            port = int(os.getenv('INFLUXDB_PORT', 8086))
+            user = os.getenv('INFLUXDB_USER', 'admin')
+            password = os.getenv('INFLUXDB_PASSWORD', 'admin')
+            database = os.getenv('INFLUXDB_DATABASE', 'rtl_monitor')
+            
+            url = f"http://{host}:{port}/write?db={database}&u={user}&p={password}"
+            data = "\n".join(lines)
+            
+            try:
+                response = requests.post(url, data=data, timeout=10)
+                logger.info(f"InfluxDB HTTP Response: {response.status_code} - {len(lines)} Linien geschrieben")
+                if response.status_code != 204:
+                    logger.error(f"InfluxDB Fehler: {response.text}")
+                return response.status_code == 204
+            except Exception as e:
+                logger.error(f"InfluxDB HTTP Request Fehler: {e}", exc_info=True)
+                return False
         return False
-
-
+    except Exception as e:
+        logger.error(f"Fehler beim Schreiben in InfluxDB: {e}", exc_info=True)
+        return False
 def init_heatmap_generator():
     """Initialisiert den Heatmap-Generator beim Start"""
     global heatmap_gen
@@ -321,6 +331,7 @@ def get_band_heatmap():
         # Heatmap generieren
         heatmap_base64 = heatmap_gen.get_heatmap_data(
             time_range=time_range,
+            band_name=band_name,
             freq_start=freq_start,
             freq_end=freq_end,
             cmap=cmap

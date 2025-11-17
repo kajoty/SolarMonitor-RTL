@@ -6,7 +6,7 @@ Ermittelt verfügbare und aktive Frequenzbereiche auf dem RTL2838 USB Dongle
 import numpy as np
 import logging
 from typing import Dict, List, Tuple, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 import json
 
@@ -49,6 +49,8 @@ class ScanResult:
     num_peaks: int             # Anzahl erkannter Signalpeaks
     scan_time: float           # Scan-Dauer in Sekunden
     timestamp: str = None
+    frequencies: Optional[np.ndarray] = None  # Array der Frequenzen in MHz (für Heatmap)
+    power_values: Optional[np.ndarray] = None  # Array der Power-Werte in dB (für Heatmap)
     
     def __post_init__(self):
         if self.timestamp is None:
@@ -181,7 +183,7 @@ class RTLSDRScanner:
             import rtlsdr
             
             start_time = datetime.now()
-            num_frequencies = 1000  # Ultra-feine Auflösung für Solar Radio Burst Detektion
+            num_frequencies = 500  # Optimiert für Scan-Zeit (~25 sec statt 50 sec bei 1000 Punkten)
             
             frequencies = np.linspace(band.freq_start, band.freq_end, num_frequencies)
             power_values = []
@@ -213,7 +215,11 @@ class RTLSDRScanner:
             
             # Analysiere Ergebnisse
             power_values = np.array(power_values)
-            power_values = power_values[~np.isnan(power_values)]
+            
+            # Filtere NaN-Werte aus BEIDEN Arrays (Frequenzen und Power)
+            valid_mask = ~np.isnan(power_values)
+            power_values = power_values[valid_mask]
+            frequencies = frequencies[valid_mask]
             
             if len(power_values) == 0:
                 logger.warning(f"Keine gültigen Daten für {band.name}")
@@ -242,7 +248,9 @@ class RTLSDRScanner:
                 active=active,
                 activity_percentage=activity_percentage,
                 num_peaks=int(peaks),
-                scan_time=scan_duration
+                scan_time=scan_duration,
+                frequencies=frequencies,  # Speichere die Frequenzen
+                power_values=power_values  # Speichere die Power-Werte
             )
             
             logger.info(f"Scan abgeschlossen: {band.name} - Aktiv: {active}, S/N: {signal_to_noise:.1f} dB")

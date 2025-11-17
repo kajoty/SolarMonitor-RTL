@@ -65,15 +65,19 @@ class FFTHeatmapGenerator:
         )
     
     def get_frequency_data(self, time_range: str = '24h', 
+                          band_name: str = None,
                           freq_start: Optional[float] = None,
-                          freq_end: Optional[float] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+                          freq_end: Optional[float] = None,
+                          limit_scans: int = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Lädt Frequenzspektrum-Daten aus InfluxDB
         
         Args:
-            time_range: Zeitraum ('1h', '6h', '24h', '7d', '30d')
+            time_range: Zeitraum ('1h', '6h', '24h', '7d', '30d') - ignoriert wenn limit_scans gesetzt
+            band_name: Band-Name zum Filtern (z.B. 'Space Weather')
             freq_start: Startfrequenz in MHz (optional)
             freq_end: Endfrequenz in MHz (optional)
+            limit_scans: Anzahl der letzten Scans (optional, ignoriert time_range)
             
         Returns:
             Tuple mit (spektrum_data, zeitstempel, frequenzen)
@@ -84,29 +88,50 @@ class FFTHeatmapGenerator:
         if not self.client:
             raise RuntimeError("InfluxDB ist nicht verbunden")
         
-        if time_range not in self.TIME_RANGES:
-            raise ValueError(f"Ungültiger Zeitraum. Erlaubt: {list(self.TIME_RANGES.keys())}")
+        if limit_scans is None:
+            if time_range not in self.TIME_RANGES:
+                raise ValueError(f"Ungültiger Zeitraum. Erlaubt: {list(self.TIME_RANGES.keys())}")
         
-        minutes = self.TIME_RANGES[time_range]
-        time_str = f"{minutes}m"
+        # Baue Query
+        # Nutze REGEX um Band-Namen zu matchen
+        band_condition = ""
+        if band_name:
+            # Extrahiere Kern-Namen für REGEX (z.B. "Space Weather" aus "Space Weather (50-1000 MHz)")
+            band_regex = band_name.split('(')[0].strip()
+            band_condition = f"band_name =~ /{band_regex}/"
         
-        # Query: Lese Frequenz und Leistung aus dem Zeitfenster
+        # Baue Frequenz-Bedingung
+        freq_condition = ""
+        if freq_start is not None and freq_end is not None:
+            freq_condition = f"\"frequency\" >= {freq_start} AND \"frequency\" <= {freq_end}"
+        
+        # Kombiniere WHERE-Bedingungen
+        where_parts = []
+        if band_condition:
+            where_parts.append(band_condition)
+        if freq_condition:
+            where_parts.append(freq_condition)
+        
+        where_clause = ""
+        if where_parts:
+            where_clause = "WHERE " + " AND ".join(where_parts)
+        
+        # Bestimme LIMIT basierend auf limit_scans
+        if limit_scans:
+            # 2 Scans × 500 Punkte = 1000 Datensätze
+            limit_clause = f"LIMIT {limit_scans * 500}"
+        else:
+            # Für Zeit-basierte Queries: Großzügiger LIMIT
+            limit_clause = "LIMIT 50000"
+        
+        # Finale Query
         query = f"""
             SELECT "frequency", "power" 
-            FROM "frequency_spectrum" 
-            WHERE time > now() - {time_str}
-            ORDER BY time ASC
+            FROM "frequency_spectrum"
+            {where_clause}
+            ORDER BY time DESC
+            {limit_clause}
         """
-        
-        if freq_start is not None and freq_end is not None:
-            query = f"""
-                SELECT "frequency", "power" 
-                FROM "frequency_spectrum" 
-                WHERE time > now() - {time_str}
-                  AND "frequency" >= {freq_start}
-                  AND "frequency" <= {freq_end}
-                ORDER BY time ASC
-            """
         
         try:
             result = self.client.query(query)
@@ -302,26 +327,30 @@ class FFTHeatmapGenerator:
         return base64.b64encode(buf.getvalue()).decode('utf-8')
     
     def get_heatmap_data(self, time_range: str = '24h',
+                        band_name: str = None,
                         freq_start: Optional[float] = None,
                         freq_end: Optional[float] = None,
                         title: str = "FFT Spektrum Heatmap",
-                        cmap: str = 'viridis') -> Optional[str]:
+                        cmap: str = 'viridis',
+                        limit_scans: int = 2) -> Optional[str]:
         """
         All-in-One Methode: Lädt Daten und generiert Heatmap
         
         Args:
-            time_range: Zeitraum
+            time_range: Zeitraum (ignoriert wenn limit_scans gesetzt)
+            band_name: Band-Name zum Filtern
             freq_start: Startfrequenz
             freq_end: Endfrequenz
             title: Grafik-Titel
             cmap: Colormap
+            limit_scans: Anzahl der letzten Scans (default: 2)
             
         Returns:
             Base64-kodierte PNG oder None bei Fehler
         """
         try:
             spektrum_data, timestamps, frequencies = self.get_frequency_data(
-                time_range, freq_start, freq_end
+                time_range, band_name, freq_start, freq_end, limit_scans=limit_scans
             )
             
             if spektrum_data.size == 0:
