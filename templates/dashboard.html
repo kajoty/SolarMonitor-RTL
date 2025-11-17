@@ -45,6 +45,13 @@
             opacity: 0.95;
         }
 
+        .header .subtitle {
+            font-size: 0.9em;
+            margin-top: 8px;
+            opacity: 0.9;
+            font-style: italic;
+        }
+
         .content {
             padding: 30px;
         }
@@ -328,8 +335,9 @@
     <div class="container">
         <!-- Header -->
         <div class="header">
-            <h1>📡 RTL-SDR Frequency Monitor</h1>
-            <p>FFT Spektrum Heatmap Dashboard</p>
+            <h1>☀️ SolarMonitor-RTL</h1>
+            <p>Solar Radio Astronomy & Kosmische Strahlung</p>
+            <div class="subtitle">RTL-SDR Sonnenaktivität & Radio Bursts Monitor</div>
         </div>
 
         <!-- Main Content -->
@@ -366,7 +374,7 @@
                     <!-- Control Grid for Bands -->
                     <div class="control-grid" style="margin-top: 20px;">
                         <div class="control-group">
-                            <label for="bandSelect">Frequenzband</label>
+                            <label for="bandSelect">☀️ Solar Radio Band</label>
                             <select id="bandSelect">
                                 <option value="">Wähle ein Band...</option>
                             </select>
@@ -546,7 +554,7 @@
         }
 
         /**
-         * Lade verfügbare Frequenzbänder
+         * Lade verfügbare Frequenzbänder (Solar Radio Astronomy)
          */
         async function loadBands() {
             try {
@@ -554,11 +562,28 @@
                 const data = await response.json();
 
                 if (data.bands && Array.isArray(data.bands)) {
-                    bandSelectInput.innerHTML = '<option value="">Wähle ein Band...</option>';
+                    bandSelectInput.innerHTML = '<option value="">Wähle ein Solar Radio Band...</option>';
+                    
+                    // Gruppiere Bänder für bessere Lesbarkeit
+                    let lastGroup = '';
+                    let optgroup = null;
+                    
                     data.bands.forEach(band => {
                         const option = document.createElement('option');
                         option.value = band.name;
-                        option.textContent = `${band.name} (${band.freq_start}-${band.freq_end} MHz)`;
+                        
+                        // Kurz-Beschreibung basierend auf Band-Namen
+                        let description = '';
+                        if (band.name.includes('Type I')) description = ' - Elektronische Streuungen';
+                        else if (band.name.includes('Type II/III')) description = ' - Shockwaves & Bursts';
+                        else if (band.name.includes('Cosmic')) description = ' - Galaktischer Hintergrund';
+                        else if (band.name.includes('Flare')) description = ' - Solarflare-Emission';
+                        else if (band.name.includes('Whistler')) description = ' - Magnetosphären-Wellen';
+                        else if (band.name.includes('Aurora')) description = ' - Nord-/Südlicht-Radio';
+                        else if (band.name.includes('Electron')) description = ' - Solare Elektronenereignisse';
+                        else if (band.name.includes('Proton')) description = ' - Solarer Protonenfluss';
+                        
+                        option.textContent = `${band.name}${description} (${band.freq_start}-${band.freq_end} MHz)`;
                         bandSelectInput.appendChild(option);
                     });
                 }
