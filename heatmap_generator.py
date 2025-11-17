@@ -68,16 +68,16 @@ class FFTHeatmapGenerator:
                           band_name: str = None,
                           freq_start: Optional[float] = None,
                           freq_end: Optional[float] = None,
-                          limit_scans: int = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+                          exclude_last_scans: int = 2) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Lädt Frequenzspektrum-Daten aus InfluxDB
         
         Args:
-            time_range: Zeitraum ('1h', '6h', '24h', '7d', '30d') - ignoriert wenn limit_scans gesetzt
+            time_range: Zeitraum ('1h', '6h', '24h', '7d', '30d')
             band_name: Band-Name zum Filtern (z.B. 'Space Weather')
             freq_start: Startfrequenz in MHz (optional)
             freq_end: Endfrequenz in MHz (optional)
-            limit_scans: Anzahl der letzten Scans (optional, ignoriert time_range)
+            exclude_last_scans: Anzahl der neuesten Scans auszuschließen (default: 2)
             
         Returns:
             Tuple mit (spektrum_data, zeitstempel, frequenzen)
@@ -88,9 +88,8 @@ class FFTHeatmapGenerator:
         if not self.client:
             raise RuntimeError("InfluxDB ist nicht verbunden")
         
-        if limit_scans is None:
-            if time_range not in self.TIME_RANGES:
-                raise ValueError(f"Ungültiger Zeitraum. Erlaubt: {list(self.TIME_RANGES.keys())}")
+        if time_range not in self.TIME_RANGES:
+            raise ValueError(f"Ungültiger Zeitraum. Erlaubt: {list(self.TIME_RANGES.keys())}")
         
         # Baue Query
         # Nutze REGEX um Band-Namen zu matchen
@@ -116,13 +115,10 @@ class FFTHeatmapGenerator:
         if where_parts:
             where_clause = "WHERE " + " AND ".join(where_parts)
         
-        # Bestimme LIMIT basierend auf limit_scans
-        if limit_scans:
-            # 2 Scans × 500 Punkte = 1000 Datensätze
-            limit_clause = f"LIMIT {limit_scans * 500}"
-        else:
-            # Für Zeit-basierte Queries: Großzügiger LIMIT
-            limit_clause = "LIMIT 50000"
+        # Bestimme LIMIT: Hole Daten aus time_range, dann schließe letzte N Scans aus
+        # Ein Scan = 500 Frequenzpunkte, also exclude_last_scans=2 = 1000 Punkte ausschließen
+        limit_value = 50000 - (exclude_last_scans * 500) if exclude_last_scans else 50000
+        limit_clause = f"LIMIT {limit_value}"
         
         # Finale Query
         query = f"""
@@ -332,31 +328,30 @@ class FFTHeatmapGenerator:
                         freq_end: Optional[float] = None,
                         title: str = "FFT Spektrum Heatmap",
                         cmap: str = 'viridis',
-                        limit_scans: int = 2) -> Optional[str]:
+                        exclude_last_scans: int = 2) -> Optional[str]:
         """
         All-in-One Methode: Lädt Daten und generiert Heatmap
         
         Args:
-            time_range: Zeitraum (ignoriert wenn limit_scans gesetzt)
+            time_range: Zeitraum zum Anzeigen
             band_name: Band-Name zum Filtern
             freq_start: Startfrequenz
             freq_end: Endfrequenz
             title: Grafik-Titel
             cmap: Colormap
-            limit_scans: Anzahl der letzten Scans (default: 2)
+            exclude_last_scans: Anzahl der neuesten Scans auszuschließen (default: 2)
             
         Returns:
             Base64-kodierte PNG oder None bei Fehler
         """
         try:
             spektrum_data, timestamps, frequencies = self.get_frequency_data(
-                time_range, band_name, freq_start, freq_end, limit_scans=limit_scans
+                time_range, band_name, freq_start, freq_end, exclude_last_scans=exclude_last_scans
             )
             
             if spektrum_data.size == 0:
                 logger.warning(f"Keine Daten verfügbar für Heatmap-Generierung")
                 return None
-            
             return self.generate_heatmap_base64(
                 spektrum_data, timestamps, frequencies, title, cmap,
                 freq_min=freq_start, freq_max=freq_end
