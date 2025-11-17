@@ -247,9 +247,25 @@ class FFTHeatmapGenerator:
         # Zeitachsen-Formatierung
         if len(timestamps) > 0:
             step = max(1, len(timestamps) // 10)
-            ax.set_xticks(np.arange(0, len(timestamps), step))
-            ax.set_xticklabels([timestamps[i] for i in range(0, len(timestamps), step)], 
-                               rotation=45, ha='right', fontsize=9)
+            tick_indices = np.arange(0, len(timestamps), step)
+            ax.set_xticks(tick_indices)
+            
+            # Format Zeitstempel kurz und lesbar
+            formatted_times = []
+            for i in tick_indices:
+                time_str = timestamps[i]
+                try:
+                    # Parse ISO format: "2025-11-17T14:32:10.123Z"
+                    dt = datetime.fromisoformat(time_str.replace('Z', '+00:00'))
+                    # Format as: "14:32" (HH:MM) oder "17 14:32" (DD HH:MM) für lange Zeiträume
+                    if len(timestamps) > 50:  # Lange Zeiträume (Tage)
+                        formatted_times.append(dt.strftime('%d %H:%M'))
+                    else:  # Kurze Zeiträume (Stunden)
+                        formatted_times.append(dt.strftime('%H:%M'))
+                except:
+                    formatted_times.append(time_str[:10])  # Fallback: nur Datum
+            
+            ax.set_xticklabels(formatted_times, rotation=45, ha='right', fontsize=9)
         
         # Colorbar
         cbar = plt.colorbar(im, ax=ax)
