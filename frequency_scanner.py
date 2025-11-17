@@ -78,67 +78,71 @@ class ScanResult:
 class RTLSDRScanner:
     """Scannt Frequenzbereiche mit RTL-SDR Hardware"""
     
-    # Häufig benutzte Frequenzbereiche optimiert für RTL2838 DVB-T Stick
+    # EMI-fokussierte Frequenzbereiche für Störungsüberwachung (statt Rundfunk/TV)
     # RTL2838 Tuner Frequenzbereich: 24-1766 MHz (praktisch: 50-1500 MHz)
     # Index basiert auf .env MONITORED_BANDS Konfiguration
     COMMON_BANDS = [
-        # === VHF Bänder (46-230 MHz) ===
-        # Index 0
-        FrequencyBand("VHF I (46-68 MHz)", 46.0, 68.0, "Analog TV Band I / DAB / PMR"),
-        # Index 1
-        FrequencyBand("FM Radio (87.5-108 MHz)", 87.5, 108.0, "UKW Rundfunk / FM Broadcast"),
-        # Index 2
-        FrequencyBand("VHF III (174-230 MHz)", 174.0, 230.0, "Analog TV Band III / DVB-T"),
+        # === Niederfrequenz & Schaltfrequenzen (50-100 kHz range wird als MHz interpretiert) ===
+        # Index 0 - SMPS & Schaltnetzteile (typisch 50-500 kHz, hier als erste Stufe)
+        FrequencyBand("SMPS Harmonics (50-150 MHz)", 50.0, 150.0, "Schaltnetzteile, Frequenzumrichter, PWM-Regler"),
         
-        # === UHF Bänder (470-862 MHz) - DVB-T Hauptbänder ===
+        # Index 1 - Motorsteuerung & VFDs
+        FrequencyBand("Motor Drives (100-300 MHz)", 100.0, 300.0, "Frequenzumrichter, Motorsteuerungen, VFD Harmonics"),
+        
+        # Index 2 - Funkgeräte & Amateurfunk
+        FrequencyBand("Radio & Amateur (30-150 MHz)", 30.0, 150.0, "UKW Funkgeräte, CB-Funk, Amateur Radio PMR"),
+        
+        # === UHF Industrial & Störquellen (300-1000 MHz) ===
         # Index 3
-        FrequencyBand("UHF IV (470-606 MHz)", 470.0, 606.0, "DVB-T Band IV / Digitales TV"),
+        FrequencyBand("Industrial UHF (400-600 MHz)", 400.0, 600.0, "Industrielle Funkgeräte, PMR446, Telemetrie"),
         # Index 4
-        FrequencyBand("UHF V (606-862 MHz)", 606.0, 862.0, "DVB-T Band V / Digitales TV"),
+        FrequencyBand("WiFi 5G Low (470-600 MHz)", 470.0, 600.0, "5G Sub-6 Band, Mikrowellenherde, Funkgeräte"),
         
-        # === Mobilfunk Bänder (890-2100 MHz) ===
+        # === Mobilfunk & Zellular ===
         # Index 5
-        FrequencyBand("GSM-900 (890-960 MHz)", 890.0, 960.0, "Mobilfunk D1/D2 / Tetra"),
+        FrequencyBand("LTE & 4G (600-900 MHz)", 600.0, 900.0, "Mobilfunk 4G/LTE Bänder, Zellular-Störungen"),
         # Index 6
-        FrequencyBand("GSM-1800 (1710-1880 MHz)", 1710.0, 1880.0, "Mobilfunk D3 / LTE Band 3"),
+        FrequencyBand("Mobilfunk (850-2000 MHz)", 850.0, 2000.0, "GSM, UMTS, 4G/LTE, Handy-Abstrahlungen"),
         
-        # === ISM & Spezial (2.4 GHz) ===
+        # === Hochfrequenz ISM & Wireless ===
         # Index 7
-        FrequencyBand("ISM 2.4 GHz (2400-2500 MHz)", 2400.0, 2500.0, "WLAN / Bluetooth / Zigbee"),
+        FrequencyBand("ISM & WLAN (2.4-2.5 GHz)", 2400.0, 2500.0, "2.4 GHz WLAN, Bluetooth, Mikrowellenherde, Zigbee"),
         
-        # === Detaillierte VHF Sub-Bänder ===
+        # === Detaillierte Nieder-Spektrum ===
         # Index 8
-        FrequencyBand("VHF I (46-54 MHz)", 46.0, 54.0, "Analog TV Band I"),
+        FrequencyBand("Low VHF (30-80 MHz)", 30.0, 80.0, "Funkgeräte, Freifunk, Industriefunk"),
         # Index 9
-        FrequencyBand("VHF I (54-68 MHz)", 54.0, 68.0, "DAB / PMR"),
+        FrequencyBand("Mid VHF (80-150 MHz)", 80.0, 150.0, "VHF Funkgeräte, Amateurfunk, Flugsicherung"),
+        
+        # === Detaillierte Störquellen-Spektren ===
         # Index 10
-        FrequencyBand("FM Low (87.5-97.5 MHz)", 87.5, 97.5, "UKW Rundfunk unten"),
+        FrequencyBand("Motor/Drive Low (100-200 MHz)", 100.0, 200.0, "VFD Grundfrequenzen & erste Harmonics"),
         # Index 11
-        FrequencyBand("FM High (97.5-108 MHz)", 97.5, 108.0, "UKW Rundfunk oben"),
+        FrequencyBand("Motor/Drive High (200-400 MHz)", 200.0, 400.0, "VFD Higher Harmonics & Schalt-EMI"),
         # Index 12
-        FrequencyBand("VHF III Low (174-192 MHz)", 174.0, 192.0, "Analog TV Kanäle 5-7"),
+        FrequencyBand("Industrial Low (400-500 MHz)", 400.0, 500.0, "Industriefunk, Telemetrie, Remote Controls"),
         # Index 13
-        FrequencyBand("VHF III High (192-230 MHz)", 192.0, 230.0, "Analog TV Kanäle 8-12"),
+        FrequencyBand("Industrial High (500-700 MHz)", 500.0, 700.0, "Hochfrequenz-Industriefunk, Radare"),
         
-        # === Detaillierte UHF Sub-Bänder ===
+        # === Mikrowellen & Hochfrequenz ===
         # Index 14
-        FrequencyBand("UHF IV Low (470-534 MHz)", 470.0, 534.0, "DVB-T Kanäle 21-32"),
+        FrequencyBand("Microwave Low (900-1200 MHz)", 900.0, 1200.0, "Mikrowellenherde, Kurznachrichtenradios, 5G mmWave base"),
         # Index 15
-        FrequencyBand("UHF IV High (534-606 MHz)", 534.0, 606.0, "DVB-T Kanäle 32-38"),
-        # Index 16
-        FrequencyBand("UHF V Low (606-710 MHz)", 606.0, 710.0, "DVB-T Kanäle 39-48"),
-        # Index 17
-        FrequencyBand("UHF V High (710-862 MHz)", 710.0, 862.0, "DVB-T Kanäle 48-60"),
+        FrequencyBand("Microwave High (1200-1600 MHz)", 1200.0, 1600.0, "Höherfrequente Mikrowellen, Radar, 5G"),
         
-        # === Weitere Bänder ===
+        # === Kombinierte Monitoring-Bänder ===
+        # Index 16
+        FrequencyBand("Alle Motorantriebe (100-700 MHz)", 100.0, 700.0, "Gesamtes VFD & Motorsteuerungs-Spektrum"),
+        # Index 17
+        FrequencyBand("Alle Funkquellen (30-1000 MHz)", 30.0, 1000.0, "Alle Funk-, PMR-, Industrial-Quellen"),
         # Index 18
-        FrequencyBand("Rundfunk (50-100 MHz)", 50.0, 100.0, "VHF Rundfunk und TV Band I"),
+        FrequencyBand("RF Coupling Band (300-1000 MHz)", 300.0, 1000.0, "Kritischer Bereich für HF-Einkopplung"),
         # Index 19
-        FrequencyBand("TV analog (100-230 MHz)", 100.0, 230.0, "TV Band II + III"),
+        FrequencyBand("Breitband EMI (50-2000 MHz)", 50.0, 2000.0, "Gesamt-Störspektrum für Problembandbreite"),
         # Index 20
-        FrequencyBand("Digital TV (470-862 MHz)", 470.0, 862.0, "DVB-T Vollständig"),
+        FrequencyBand("High Interference Zone (400-600 MHz)", 400.0, 600.0, "Höchste Stördichte-Zone (PMR, WiFi, Radar)"),
         # Index 21
-        FrequencyBand("PMR/Funk (400-500 MHz)", 400.0, 500.0, "PMR / Freifunk / Funkgeräte"),
+        FrequencyBand("Solar Inverter Harmonics (30-500 MHz)", 30.0, 500.0, "Typische PV-Wechselrichter & SMPS Harmonics"),
     ]
     
     def __init__(self, rtl_device_index: int = 0, sample_rate: int = 2000000, 
