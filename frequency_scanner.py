@@ -125,7 +125,17 @@ class RTLSDRScanner:
             import rtlsdr
             self.device = rtlsdr.RtlSdr(device_index=self.rtl_device_index)
             self.device.sample_rate = self.sample_rate
-            self.device.gain = self.gain
+            
+            # Konvertiere Gain zu float wenn nicht 'auto'
+            if self.gain != 'auto':
+                try:
+                    self.device.gain = float(self.gain)
+                except ValueError:
+                    logger.warning(f"Ungültige Gain-Wert '{self.gain}', verwende 'auto'")
+                    self.device.gain = 'auto'
+            else:
+                self.device.gain = 'auto'
+            
             self.is_connected = True
             
             # Log Gain-Konfiguration
