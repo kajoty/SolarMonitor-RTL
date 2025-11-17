@@ -80,15 +80,15 @@ class ScanResult:
 class RTLSDRScanner:
     """Scannt Frequenzbereiche mit RTL-SDR Hardware"""
     
-    # Space Weather Monitoring - nur Band 7
+    # Solar Radio Astronomy - Meterwellen für Type II/III Solar Bursts
     # RTL2838 Tuner Frequenzbereich: 24-1766 MHz (praktisch: 50-1500 MHz)
     COMMON_BANDS = [
-        # Index 0 - Space Weather Broadband
-        FrequencyBand("Space Weather (50-1000 MHz)", 50.0, 1000.0, "Breitband-Weltraum-Wetter Monitoring"),
+        # Index 0 - Radio Jove / Meterwellen (20-80 MHz)
+        FrequencyBand("Solar Radio (20-80 MHz)", 20.0, 80.0, "Type II/III Solar Bursts & Radioastronomie"),
     ]
     
     def __init__(self, rtl_device_index: int = 0, sample_rate: int = 2000000, 
-                 gain: str = 'auto', use_mock: bool = False):
+                 gain: str = 'auto', ppm_correction: int = 0, use_mock: bool = False):
         """
         Initialisiert RTL-SDR Scanner
         
@@ -97,11 +97,14 @@ class RTLSDRScanner:
             sample_rate: Sample-Rate in Hz (Standard: 2 MSps für RTL2838)
             gain: 'auto' oder fester Wert in dB (z.B. '20.7', '25.4')
                   Typische Werte für RTL2838: 0-49.6 dB in 0.1er Schritten
+            ppm_correction: Frequenz-Kalibrierung in ppm (Parts Per Million)
+                           Korrigiert Quarz-Oszillator Drift (-50 bis +50 ppm typisch)
             use_mock: Verwende Mock-Daten statt echter Hardware (für Entwicklung)
         """
         self.rtl_device_index = rtl_device_index
         self.sample_rate = sample_rate
         self.gain = gain
+        self.ppm_correction = ppm_correction
         self.device = None
         self.is_connected = False
         self.use_mock = use_mock
@@ -134,13 +137,21 @@ class RTLSDRScanner:
             else:
                 self.device.gain = 'auto'
             
+            # Setze PPM-Correction wenn vorhanden
+            if self.ppm_correction != 0:
+                try:
+                    self.device.freq_correction = self.ppm_correction
+                    logger.info(f"Frequenz-Kalibrierung: {self.ppm_correction} ppm")
+                except Exception as e:
+                    logger.warning(f"Konnte PPM-Korrektur nicht setzen: {e}")
+            
             self.is_connected = True
             
             # Log Gain-Konfiguration
             if self.gain == 'auto':
-                logger.info(f"RTL-SDR Gerät {self.rtl_device_index} verbunden (Auto Gain)")
+                logger.info(f"RTL-SDR Gerät {self.rtl_device_index} verbunden (Auto Gain, PPM: {self.ppm_correction})")
             else:
-                logger.info(f"RTL-SDR Gerät {self.rtl_device_index} verbunden (Gain: {self.gain} dB)")
+                logger.info(f"RTL-SDR Gerät {self.rtl_device_index} verbunden (Gain: {self.gain} dB, PPM: {self.ppm_correction})")
         except ImportError:
             logger.error("rtl-sdr Modul nicht verfügbar. Installieren Sie: pip install rtl-sdr")
             raise
@@ -409,5 +420,6 @@ def create_scanner_from_env() -> RTLSDRScanner:
     device_idx = int(os.getenv('RTL_DEVICE_INDEX', 0))
     sample_rate = int(os.getenv('RTL_SAMPLE_RATE', 2000000))
     gain = os.getenv('RTL_GAIN', 'auto')  # 'auto' oder fester Wert wie '25.4'
+    ppm_correction = int(os.getenv('RTL_PPM_CORRECTION', 0))  # PPM-Offset für Frequenzkalibrierung
     
-    return RTLSDRScanner(device_idx, sample_rate, gain)
+    return RTLSDRScanner(device_idx, sample_rate, gain, ppm_correction)

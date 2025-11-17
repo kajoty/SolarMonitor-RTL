@@ -6,3 +6,9 @@ venv/
 .DS_Store
 *.swp
 .vscode/
+
+# Datenbanken und Archivierungen
+spectrum.db
+heatmaps/
+*.sqlite
+*.db

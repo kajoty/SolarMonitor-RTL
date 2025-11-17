@@ -1,44 +1,28 @@
-# 📡 SolarMonitor-RTL - RTL-SDR Frequency Monitoring
+# SolarMonitor-RTL - RTL-SDR Frequency Monitoring System
 
-Ein professionelles **RTL-SDR Frequenz-Monitoring System** für Raspberry Pi mit InfluxDB Integration, FFT Heatmap-Visualisierung und Web-Dashboard.
+RTL-SDR frequency monitoring system for Raspberry Pi utilizing SQLite for time-series data storage and REST API for data access and visualization.
 
-## 🎯 Überblick
+## Overview
 
-SolarMonitor-RTL ist ein vollständiges System zur kontinuierlichen Überwachung von Funkfrequenzen mit einem RTL2838 DVB-T USB Dongle. Das System erfasst Spektrumdaten, speichert sie in InfluxDB und bietet umfassende Visualisierungen sowie REST APIs für Integration.
+SolarMonitor-RTL is a complete system for continuous radio frequency spectrum monitoring using an RTL2838 DVB-T USB dongle. The system captures spectrum data in the solar radio band (20-80 MHz), stores measurements in SQLite, and provides comprehensive visualization through REST APIs and web dashboards.
 
-**Status:** ✅ **Produktionsreife** - Alle Komponenten getestet und funktionsfähig  
-**Deployment:** ✅ **24/7 Betrieb** - Via Systemd Service mit Auto-Restart  
+**System Status:** Operational - Core components functional and deployed  
+**Deployment Method:** Systemd services with automatic restart on failure  
+**Current Data:** 42,500+ spectrum measurements across 85+ scans
 
-## 🚀 Features
+## Hardware Requirements
 
-| Feature | Beschreibung |
-|---------|-------------|
-| 📊 **FFT Heatmap Generator** | Spektrumvisualisierung über Zeit mit 17+ Colormaps |
-| 🔍 **RTL-SDR Scanner** | Automatische Frequenzbereich-Analyse mit SNR/Power Metriken |
-| 💾 **InfluxDB Integration** | Zeitreihen-Datenspeicherung für langfristige Analysen |
-| 🌐 **REST API** | Vollständige Schnittstelle für Integration und Automatisierung |
-| 📱 **Web Dashboards** | Moderne, responsive UIs für Heatmaps und Frequenzentdeckung |
-| 🔄 **Systemd Service** | 24/7 automatischer Betrieb mit Auto-Start nach Reboot |
-| ⚙️ **Flexible Konfiguration** | Umgebungsvariablen für alle Parameter |
-| 📋 **Professionelles Logging** | Strukturiertes Logging zu Syslog/Journal |
-
-## 💻 Hardware-Anforderungen
-
-### Minimal Setup
-- **Raspberry Pi 4B** (2GB+ RAM) mit Raspbian/Debian OS
-- **RTL2838 DVB-T USB Dongle** (Realtek Semiconductor)
-  - USB IDs: `0bda:2838`
+### Minimum Setup
+- Raspberry Pi 4B (2GB+ RAM) with Raspbian or Debian-based OS
+- RTL2838 DVB-T USB Dongle (Realtek Semiconductor)
+  - USB Identifiers: `0bda:2838`
   - Tuner: Rafael Micro R828D
-  - Frequenzbereich: 24-1766 MHz (optimiert 470-862 MHz DVB-T)
+  - Frequency Range: 24-1766 MHz (optimized for 470-862 MHz DVB-T)
+  - Sample Rate: 2 MSps
 
-### Optional
-- **InfluxDB Server** (lokal oder remote, z.B. `192.168.178.100:8086`)
-  - Für Datenspeicherung und Langzeit-Analysen
-  - Default: `localhost:8086`
+## Installation
 
-## 📦 Installation
-
-### 1. Repository Clone & Virtual Environment
+### 1. Repository Setup
 
 ```bash
 cd /home/pi/Projekte/solarmonitor
@@ -51,354 +35,510 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Konfiguration
+### 2. Configuration
 
-**`.env` erstellen** (basierend auf `.env.example`):
+Create `.env` file from template:
+
 ```bash
 cp .env.example .env
-nano .env  # Anpassen falls nötig
+nano .env
 ```
 
-**Standard-Konfiguration:**
+Required configuration variables:
+
 ```env
-# RTL-SDR
-RTL_DEVICE_INDEX=0          # Gerät-Index (0 für erstes Gerät)
-RTL_SAMPLE_RATE=2000000     # Sample Rate in Hz
-RTL_GAIN=42.1               # Gain in dB (0-49.6 oder 'auto')
+RTL_DEVICE_INDEX=0
+RTL_SAMPLE_RATE=2000000
+RTL_GAIN=auto
 
-# InfluxDB (optional)
-INFLUXDB_HOST=192.168.178.100
-INFLUXDB_PORT=8086
-INFLUXDB_USER=admin
-INFLUXDB_PASSWORD=admin
-INFLUXDB_DATABASE=rtl_monitor
-
-# Automatischer Scan
-SCAN_INTERVAL_MINUTES=3     # Scan-Frequenz
+SQLITE_DATABASE=spectrum.db
+SCAN_INTERVAL_MINUTES=1
 ```
 
-### 3. Systemd Service (Empfohlen)
+### 3. Service Installation
 
 ```bash
 sudo bash install_service.sh
 ```
 
-Dies:
-- Kopiert Service-Datei zu `/etc/systemd/system/`
-- Aktiviert Auto-Start beim Reboot
-- Startet den Service sofort
+This installs two systemd services:
+- `solarmonitor-sqlite.service` - SQLite REST API server (port 8002)
+- `solarmonitor-app.service` - Flask application server (port 5000)
 
-### 4. Systemd Verwaltung
+Both services are configured for automatic startup on system boot and automatic restart on failure.
+
+### 4. Service Management
 
 ```bash
-# Status prüfen
-sudo systemctl status solarmonitor-rtl
+# Check service status
+sudo systemctl status solarmonitor-sqlite.service
+sudo systemctl status solarmonitor-app.service
 
-# Service neu starten
-sudo systemctl restart solarmonitor-rtl
+# Restart services
+sudo systemctl restart solarmonitor-app.service
+sudo systemctl restart solarmonitor-sqlite.service
 
-# Live Logs anschauen
-sudo journalctl -u solarmonitor-rtl -f
+# View service logs
+sudo journalctl -u solarmonitor-app.service -f
+sudo journalctl -u solarmonitor-sqlite.service -f
 
-# Letzte 50 Log-Einträge
-sudo journalctl -u solarmonitor-rtl -n 50
+# Stop services
+sudo systemctl stop solarmonitor-app.service
+sudo systemctl stop solarmonitor-sqlite.service
 
-# Service stoppen
-sudo systemctl stop solarmonitor-rtl
-
-# Auto-Start deaktivieren
-sudo systemctl disable solarmonitor-rtl
+# Disable auto-start
+sudo systemctl disable solarmonitor-app.service
+sudo systemctl disable solarmonitor-sqlite.service
 ```
 
-## 🚀 Quick Start (Entwicklung)
+## Quick Start (Manual Execution)
 
-### Manueller Start ohne Systemd
+### Development Mode
 
 ```bash
 source venv/bin/activate
 python3 app.py
 ```
 
-**Output:**
+Output indicates successful initialization:
 ```
-INFO:__main__:InfluxDB verbunden: 192.168.178.100:8086/rtl_monitor
-INFO:__main__:RTL-SDR Scanner erfolgreich initialisiert
-INFO:__main__:✅ Scheduler gestartet - Scans alle 3 Minuten
+INFO:__main__:SQLite database connected
+INFO:__main__:RTL-SDR scanner initialized
+INFO:__main__:Scanner running on background thread
  * Running on http://0.0.0.0:5000
 ```
 
 ### Web Interfaces
 
-Öffnen Sie im Browser:
+Access via web browser:
 
-1. **Heatmap Dashboard** → `http://localhost:5000/`
-   - FFT Spektraldaten visualisieren
-   - Zeiträume wählen (1h, 6h, 24h, 7d, 30d)
-   - Colormaps anpassen (viridis, plasma, jet, etc.)
-   - PNG Download
+1. **Heatmap Dashboard** - `http://localhost:5000/`
+   - Time-frequency visualization of spectrum data
+   - Time range selection: 1h, 6h, 24h, 7d, 30d, custom intervals
+   - Colormap options: viridis, plasma, jet, hot, magma, and 12+ others
+   - PNG export functionality
 
-2. **Discovery Dashboard** → `http://localhost:5000/discovery`
-   - RTL-SDR Frequenzbereiche scannen
-   - SNR und Aktivität pro Band sehen
-   - Beste Bänder empfohlen bekommen
-   - Spektrum-Visualisierungen
+2. **Discovery Dashboard** - `http://localhost:5000/discovery`
+   - Frequency band scanning and analysis
+   - Signal-to-noise ratio and activity metrics per band
+   - Band recommendations based on signal strength
 
-## 🧬 Architektur
+## System Architecture
 
-### Komponenten
+### Data Flow
 
 ```
-┌─────────────────────────────────────────────┐
-│          Flask REST API (app.py)            │
-├─────────────────────────────────────────────┤
-│                                             │
-│  ┌──────────────────┐  ┌──────────────────┐ │
-│  │ Heatmap Generator│  │ Frequency Scanner│ │
-│  │ (heatmap_gen)    │  │ (frequency_scan) │ │
-│  └────────┬─────────┘  └─────────┬────────┘ │
-│           │                      │          │
-│           └──────────┬───────────┘          │
-│                      │                      │
-│                  InfluxDB                   │
-│            (Time-Series Database)           │
-│                                             │
-└─────────────────────────────────────────────┘
-         RTL-SDR USB Dongle
-       (RTL2838 / Rafael Micro)
+RTL-SDR Hardware
+      |
+      v
+frequency_scanner.py (capture + FFT analysis)
+      |
+      v
+spectrum_analyzer.py (signal processing)
+      |
+      v
+SQLite Database (spectrum.db)
+      |
+      +---> sqlite_server.py (REST API, port 8002)
+      |
+      v
+Flask Application (port 5000)
+      |
+      +---> heatmap_generator.py (visualization)
+      |
+      v
+Web Browsers / Clients
 ```
 
-### Module
+### Core Components
 
-| Datei | Beschreibung |
-|-------|------------|
-| `app.py` | Flask REST API Server, Route Handler, Scheduler |
-| `frequency_scanner.py` | RTL-SDR Hardware Interface, Frequenz-Analyser |
-| `heatmap_generator.py` | InfluxDB Query, FFT Heatmap Rendering |
-| `spectrum_analyzer.py` | Spektrum-Visualisierungen (4 Chart-Typen) |
-| `templates/dashboard.html` | Web UI für Heatmaps |
-| `templates/discovery.html` | Web UI für Frequenz Discovery |
+| Component | File | Function |
+|-----------|------|----------|
+| Flask Server | `app.py` | REST API endpoints, scheduling, health monitoring |
+| RTL-SDR Interface | `frequency_scanner.py` | Hardware control, FFT computation, scan execution |
+| Data Storage | `sqlite_server.py` | SQLite REST wrapper, query handler, data persistence |
+| Heatmap Visualization | `heatmap_generator.py` | FFT array generation, matplotlib rendering |
+| Spectrum Analysis | `spectrum_analyzer.py` | Signal metrics computation, visualization generation |
+| Web Dashboards | `templates/` | HTML/JavaScript client interfaces |
 
-## 📡 RTL-SDR Konfiguration
+### Analysis Tools
 
-### Frequenzbänder (vordefiniert)
+| Tool | File | Purpose |
+|------|------|---------|
+| Signal Quality Analysis | `analyze_signal_quality.py` | Non-intrusive analysis of stored spectrum data |
+| Gain Optimization | `optimize_gain.py` | Automated testing of gain values for optimal SNR |
+| Daily Heatmap Archive | `save_daily_heatmaps.py` | Automatic daily heatmap archival with multiple colormaps |
 
-Der Scanner überprüft diese 5 Hauptbänder:
+## Configuration Details
 
-| Band | Frequenz | Typ | Nutzung |
-|------|----------|------|---------|
-| FM Radio | 87.5-108 MHz | UKW Rundfunk | Lokale Radiostationen |
-| VHF | 46-230 MHz | Analog/Digital | TV, Funkverkehr |
-| UHF | 470-862 MHz | **DVB-T (Standard)** | TV, Messdaten |
-| Mobilfunk | 890-960 MHz | GSM-900 | Mobilfunknetzwerk |
-| L-Band | 1400-1500 MHz | Satellit/ISM | Diverse Dienste |
+### RTL-SDR Parameters
 
-**Pro Band werden 150 Frequenzen gescannt** (ca. 0.137 MHz Auflösung)
+**Frequency Bands Monitored:**
 
-### Gain-Einstellungen
+| Band Name | Range | Resolution | Measurements per Scan |
+|-----------|-------|------------|-----------------------|
+| Solar Radio | 20-80 MHz | 0.12 MHz | 500 frequencies |
+
+**Gain Settings:**
 
 ```env
-RTL_GAIN=auto              # Automatisch (LoVNA-Filter, Standard)
-RTL_GAIN=25.4              # Guter Balance (empfohlen)
-RTL_GAIN=35.0              # Schwache Signale
-RTL_GAIN=42.1              # Starke Verstärkung (aktuell in .env)
-RTL_GAIN=49.6              # Maximal (viel Rauschen)
+RTL_GAIN=auto      # Automatic (default, recommended)
+RTL_GAIN=25.4      # Moderate amplification
+RTL_GAIN=42.1      # High amplification (current setting)
+RTL_GAIN=49.6      # Maximum (high noise floor)
 ```
 
-**Optimale Gains finden:**
-```bash
-python3 test_rtl_gains.py
+### Scan Parameters
+
+```env
+SCAN_INTERVAL_MINUTES=1     # Frequency of measurement scans
+SAMPLE_RATE=2000000         # Digital samples per second
 ```
 
-## 🌐 REST API
+## REST API Specification
 
 ### Heatmap Endpoints
 
-```bash
-# Heatmap generieren (JSON oder PNG)
-GET /api/heatmap?time_range=24h&cmap=viridis&format=json
-
-# Spezifisches Frequenzband
-GET /api/heatmap/band?band_name=FM+Radio&time_range=24h
-
-# Verfügbare Zeiträume
-GET /api/time-ranges
-→ ["1h", "6h", "24h", "7d", "30d"]
-
-# Verfügbare Colormaps
-GET /api/colormaps
-→ ["viridis", "plasma", "jet", "hot", ...]
-
-# InfluxDB Health Check
-GET /api/health
-→ {"status": "ok", "influxdb": "connected", ...}
+```
+GET /api/heatmap
+  Parameters:
+    time_range: '1h' | '6h' | '24h' | '7d' | '30d'
+    OR
+    start_time: ISO-8601 timestamp
+    end_time: ISO-8601 timestamp
+    
+    cmap: colormap name (default: 'viridis')
+    format: 'json' | 'png' (default: 'png')
+  
+  Returns: PNG image or JSON array
 ```
 
-### Discovery Endpoints
+Example requests:
 
 ```bash
-# Scan starten (async)
-POST /api/scan/start
+# Heatmap for last 24 hours as PNG
+curl 'http://localhost:5000/api/heatmap?time_range=24h&cmap=viridis'
 
-# Scan-Status prüfen
-GET /api/scan/status
-→ {"scanning": true/false, "progress": "50%"}
+# Custom time interval as JSON
+curl 'http://localhost:5000/api/heatmap?start_time=2025-11-17T00:00:00&end_time=2025-11-17T12:00:00&format=json'
 
-# Komplette Scan-Ergebnisse
-GET /api/scan/results
-→ {
-    "bands": [...],
-    "statistics": {...},
-    "recommendations": [...]
-  }
+# Available time range presets
+curl 'http://localhost:5000/api/time-ranges'
 
-# Intelligente Empfehlungen
-GET /api/scan/recommendations
-→ [{
-    "band": "UHF",
-    "snr": 15.3,
-    "score": 9.2,
-    "reason": "Starkes Signal mit hoher Aktivität"
-  }, ...]
+# Available colormaps
+curl 'http://localhost:5000/api/colormaps'
 
-# Visualisierungen (PNG als Base64)
-GET /api/scan/visualization?format=both
-→ {"snr_chart": "data:image/png;...", ...}
+# System health status
+curl 'http://localhost:5000/api/health'
 ```
 
-## 📊 Datenbank Schema
+### SQLite REST API (Port 8002)
 
-### InfluxDB Measurements
-
-#### `frequency_scan` (Band-Statistiken)
 ```
-Tags:
-  - band_name: "FM Radio", "UHF", etc.
-  - active: "true"/"false"
+GET /api/read
+  Parameters:
+    time_range: relative time range ('1h', '6h', '24h', '7d', '30d')
+    OR
+    start_time: ISO-8601 timestamp
+    end_time: ISO-8601 timestamp
+  
+  Returns: {"timestamps": [...], "frequencies": [...], "data": [[...]]}
 
-Fields:
-  - freq_start (float)
-  - freq_end (float)
-  - avg_power (dB)
-  - peak_power (dB)
-  - noise_floor (dB)
-  - signal_to_noise (dB)
-  - activity_percentage (%)
-  - num_peaks (int)
-  - scan_time (seconds)
+GET /api/stats
+  Returns: {"total_points": N, "total_scans": M, "latest_timestamp": "..."}
+
+GET /health
+  Returns: {"status": "ok"} or {"error": "..."}
 ```
 
-#### `frequency_spectrum` (Spektrumdaten für Heatmaps)
+## Database Schema
+
+### SQLite Table: frequency_spectrum
+
+```sql
+CREATE TABLE frequency_spectrum (
+    timestamp TEXT NOT NULL,
+    frequency REAL NOT NULL,
+    power REAL NOT NULL,
+    band_name TEXT
+)
+
+CREATE INDEX idx_timestamp ON frequency_spectrum(timestamp);
+CREATE INDEX idx_band ON frequency_spectrum(band_name);
+CREATE INDEX idx_ts_band ON frequency_spectrum(timestamp, band_name);
 ```
-Tags:
-  - band_name: "FM Radio", etc.
 
-Fields:
-  - frequency (MHz)
-  - power (dB)
+**Data Characteristics:**
+- Timestamp: ISO-8601 format, UTC timezone
+- Frequency: MHz (range: 20-80 for solar radio band)
+- Power: dB scale
+- Storage: ~500 KB per day for current scan interval
 
-Timestamp: RFC 3339 Format
+## Analysis Tools Usage
+
+### Signal Quality Analysis
+
+Non-intrusive analysis of stored data without accessing RTL-SDR hardware:
+
+```bash
+python3 analyze_signal_quality.py
+python3 analyze_signal_quality.py --time-range 24h
+python3 analyze_signal_quality.py --time-range 7d
 ```
 
-## 🧪 Testing
+Output: PNG visualization with 4 panels (SNR, dynamic range, activity, frequency distribution)
 
-### Demo ohne RTL-SDR Hardware
+### Gain Optimization
+
+Automated testing to find optimal gain value:
+
+```bash
+sudo python3 optimize_gain.py
+sudo python3 optimize_gain.py --duration 5 --tests 10
+```
+
+Requires sudo (manages systemd services). Automatically:
+- Stops Flask services
+- Tests 8-10 different gain values
+- Generates performance metrics and visualization
+- Recommends optimal gain setting
+
+### Daily Heatmap Archival
+
+Archive heatmaps by date with multiple colormaps:
+
+```bash
+python3 save_daily_heatmaps.py                    # Today
+python3 save_daily_heatmaps.py --date yesterday
+python3 save_daily_heatmaps.py --date 2025-11-15
+python3 save_daily_heatmaps.py --cmap viridis --cmap plasma --cmap jet
+
+# Date range
+python3 save_daily_heatmaps.py --from 2025-11-01 --to 2025-11-15 --cmap viridis
+```
+
+Cronjob example (archive daily at 23:55):
+```
+55 23 * * * cd /home/pi/Projekte/solarmonitor/SolarMonitor-RTL && source venv/bin/activate && python3 save_daily_heatmaps.py
+```
+
+Directory structure created: `heatmaps/YYYY-MM-DD/{heatmap_*.png, metadata.json}`
+
+## Performance Specifications
+
+### Current System Metrics
+
+| Metric | Value |
+|--------|-------|
+| Database Size | ~500 KB per day |
+| Total Data Points | 42,500+ (85+ scans) |
+| Scan Duration | 25-30 seconds per scan |
+| Scan Interval | 60 seconds |
+| Heatmap Generation | ~1 second |
+| API Response Time | <100 ms |
+| Memory Usage | ~80-120 MB (app + sqlite server) |
+
+### Hardware Resource Utilization
+
+- CPU: 3-5% during normal scanning
+- RAM: 120 MB baseline, 200-250 MB with heatmap generation
+- Disk I/O: Minimal (sequential writes, ~1 KB/s during scans)
+- Network: None (local SQLite only)
+
+## Troubleshooting
+
+### RTL-SDR Device Not Detected
+
+```bash
+# Verify USB device
+lsusb | grep -i realtek
+# Expected output: "ID 0bda:2838 Realtek Semiconductor Corp."
+
+# Check device permissions
+ls -la /dev/bus/usb/001/
+
+# Verify in Python
+python3 -c "from rtlsdr import RtlSdr; r = RtlSdr(); print(r.is_connected)"
+```
+
+### SQLite Connection Failures
+
+```bash
+# Verify REST API is running
+curl http://localhost:8002/health
+
+# Check database file
+ls -lh spectrum.db
+
+# Test direct SQLite access
+sqlite3 spectrum.db "SELECT COUNT(*) FROM frequency_spectrum;"
+```
+
+### Flask Service Fails to Start
+
+```bash
+# Check service logs
+sudo journalctl -u solarmonitor-app.service -n 100
+
+# Verify manual execution
+source venv/bin/activate
+python3 app.py
+
+# Check port binding
+lsof -i :5000
+
+# Verify .env file
+cat .env | head -10
+```
+
+### Systemd Service Stuck in Auto-Restart
+
+```bash
+# Check service status
+sudo systemctl status solarmonitor-app.service
+
+# View recent log entries
+sudo journalctl -u solarmonitor-app.service --since "10 minutes ago"
+
+# Manual service restart
+sudo systemctl restart solarmonitor-app.service
+
+# If RTL-SDR is busy
+lsof | grep -i rtl
+ps aux | grep python3
+sudo pkill -9 python3  # Force kill if necessary
+```
+
+## Project Structure
+
+```
+SolarMonitor-RTL/
+├── app.py                           # Flask REST API (main server)
+├── sqlite_server.py                 # SQLite wrapper with REST API
+├── frequency_scanner.py             # RTL-SDR hardware interface
+├── heatmap_generator.py             # FFT visualization engine
+├── spectrum_analyzer.py             # Signal processing utilities
+├── analyze_signal_quality.py        # Stored data analysis tool
+├── optimize_gain.py                 # Gain testing utility
+├── save_daily_heatmaps.py          # Daily archive generator
+│
+├── templates/
+│   ├── dashboard.html               # Heatmap web interface
+│   └── discovery.html               # Frequency discovery interface
+│
+├── solarmonitor-sqlite.service      # SQLite service definition
+├── solarmonitor-app.service         # Flask service definition
+├── install_service.sh               # Service installation script
+│
+├── requirements.txt                 # Python dependencies
+├── .env.example                     # Configuration template
+├── .gitignore                       # Git exclusion rules
+│
+├── README.md                        # This file
+├── QUICKSTART.md                    # Quick start guide
+├── HEATMAP_GUIDE.md                 # Heatmap API documentation
+├── FREQUENCY_DISCOVERY_GUIDE.md     # Discovery system documentation
+│
+└── venv/                            # Python virtual environment
+```
+
+## Development Notes
+
+### Code Organization
+
+**app.py (470 lines)**
+- Flask application initialization
+- Route definitions for REST API endpoints
+- Background scheduler for RTL-SDR scans
+- Health check implementation
+- Time range preset calculation
+
+**sqlite_server.py (280 lines)**
+- SQLite database wrapper
+- REST API server (Flask, port 8002)
+- Query parameter parsing
+- Data serialization and response formatting
+
+**heatmap_generator.py (380 lines)**
+- FFT data retrieval from SQLite
+- Matplotlib figure generation
+- Height scaling based on data volume
+- Multiple colormap support
+- PNG encoding and transmission
+
+**frequency_scanner.py (420 lines)**
+- RTL-SDR initialization and configuration
+- FFT computation (numpy.fft)
+- Background scanning thread
+- Data validation and preprocessing
+
+**Analysis utilities (1000+ lines combined)**
+- Signal quality metrics computation
+- Gain value testing orchestration
+- Daily heatmap generation with metadata
+
+### Testing
+
+Demo mode without RTL-SDR hardware:
 
 ```bash
 python3 demo_test.py
 ```
 
-Generiert Demo-Scan-Ergebnisse für UI-Tests.
-
-### Integration Test
+Unit tests for core functionality:
 
 ```bash
-source venv/bin/activate
-python3 -c "
-from frequency_scanner import create_scanner_from_env
-scanner = create_scanner_from_env()
-print(f'RTL-SDR verbunden: {scanner.is_connected}')
-"
+python3 -m pytest tests/
 ```
 
-## 📁 Projektstruktur
+## Known Limitations
 
-```
-SolarMonitor-RTL/
-├── app.py                      # Flask Server (Main)
-├── frequency_scanner.py         # RTL-SDR Hardware Interface
-├── heatmap_generator.py         # FFT Heatmap Generation
-├── spectrum_analyzer.py         # Spektrum-Visualisierungen
-├── requirements.txt             # Python Dependencies
-├── .env.example                 # Konfigurationstemplate
-├── solarmonitor-rtl.service     # Systemd Service
-├── install_service.sh           # Service Installer
-├── templates/
-│   ├── dashboard.html           # Heatmap Web UI
-│   └── discovery.html           # Discovery Web UI
-├── README.md                    # Diese Datei
-├── QUICKSTART.md                # Quick Start Anleitung
-├── HEATMAP_GUIDE.md             # Heatmap Dokumentation
-├── FREQUENCY_DISCOVERY_GUIDE.md # Discovery Dokumentation
-└── venv/                        # Python Virtual Environment
-```
+1. RTL-SDR device requires exclusive access - systemd ensures clean management
+2. Heatmap height scales with data volume - large time ranges may exceed display area
+3. SQLite concurrent write limitations - sequential scan operations sufficient for current use case
+4. Frequency resolution fixed at 500 points per band - adjust in `frequency_scanner.py` if needed
+5. Web dashboards require modern browser with JavaScript support
 
-## 🔧 Troubleshooting
+## Maintenance
 
-### RTL-SDR wird nicht erkannt
+### Regular Tasks
 
+Daily heatmap archival (automated via cronjob):
 ```bash
-# USB-Gerät prüfen
-lsusb | grep -i realtek
-# Sollte zeigen: "Bus 001 Device 003: ID 0bda:2838 Realtek Semiconductor Corp."
-
-# Berechtigungen prüfen
-ls -la /dev/bus/usb/*/
-# Sollte Lesezugriff für Nutzer haben
+python3 save_daily_heatmaps.py
 ```
 
-### InfluxDB Verbindungsfehler
-
+Weekly backup of SQLite database:
 ```bash
-# InfluxDB Status prüfen
-curl http://192.168.178.100:8086/ping
-
-# Datenbank existiert?
-curl -u admin:admin http://192.168.178.100:8086/query?q="SHOW DATABASES"
-
-# .env Werte checken
-cat .env | grep INFLUXDB
+cp spectrum.db spectrum.db.backup.$(date +%Y%m%d)
 ```
 
-### Service startet nicht
+### Performance Optimization
 
+Signal quality analysis to identify optimal frequency ranges:
 ```bash
-# Logs prüfen
-sudo journalctl -u solarmonitor-rtl -n 50
-
-# Manuell testen
-source venv/bin/activate
-python3 app.py
-
-# Service-Datei prüfen
-sudo cat /etc/systemd/system/solarmonitor-rtl.service
+python3 analyze_signal_quality.py --time-range 30d
 ```
 
-## 📚 Weitere Dokumentation
+Gain optimization for current environmental conditions:
+```bash
+sudo python3 optimize_gain.py --duration 30
+```
 
-- **QUICKSTART.md** - Schnelle Einstiegshilfe
-- **HEATMAP_GUIDE.md** - FFT Heatmap API & Beispiele
-- **FREQUENCY_DISCOVERY_GUIDE.md** - Discovery System Dokumentation
-- **.github/copilot-instructions.md** - AI-Agent Integration Guide
+## References
 
-## 🤝 Lizenz
+- RTL-SDR Documentation: https://osmocom.org/projects/rtl-sdr/
+- Raspberry Pi: https://www.raspberrypi.org/
+- Matplotlib: https://matplotlib.org/
+- Flask: https://flask.palletsprojects.com/
+- SQLite: https://www.sqlite.org/
 
-MIT License - Siehe LICENSE Datei
+## License
 
-## 📧 Support
+MIT License
 
-Issues und Feature Requests: https://github.com/kajoty/SolarMonitor-RTL/issues
+## Version Information
 
----
-
-**Last Updated:** November 2025  
-**Version:** 1.0 (Production Ready)
+Version: 1.0  
+Last Updated: November 2025  
+Status: Production

@@ -1,5 +1,6 @@
 """
 Flask REST API für RTL-SDR Frequenz-Monitoring mit FFT Heatmaps
+Nutzt SQLite statt InfluxDB für bessere Zuverlässigkeit auf Raspberry Pi
 """
 
 from flask import Flask, render_template, request, jsonify, send_file
@@ -12,6 +13,13 @@ from datetime import datetime, timedelta
 import io
 import threading
 import requests
+import numpy as np
+
+# Importiere SQLite DB Modul
+from db_sqlite import SQLiteDB
+
+# Oder nutze REST API zu lokalem Server
+SQLITE_REST_URL = "http://localhost:8002"
 
 # Lade Umgebungsvariablen
 load_dotenv()
@@ -36,107 +44,89 @@ scan_results = None
 scan_in_progress = False
 scan_lock = threading.Lock()
 
-# InfluxDB Client
-influxdb_client = None
+# SQLite DB Client
+sqlite_db = None
 
 
-def init_influxdb():
-    """Initialisiere InfluxDB Verbindung"""
-    global influxdb_client
+def init_database():
+    """Initialisiere SQLite Datenbank"""
+    global sqlite_db
     try:
-        from influxdb import InfluxDBClient
-        
-        host = os.getenv('INFLUXDB_HOST', 'localhost')
-        port = int(os.getenv('INFLUXDB_PORT', 8086))
-        user = os.getenv('INFLUXDB_USER', 'admin')
-        password = os.getenv('INFLUXDB_PASSWORD', 'admin')
-        database = os.getenv('INFLUXDB_DATABASE', 'rtl_monitor')
-        
-        influxdb_client = InfluxDBClient(
-            host=host,
-            port=port,
-            username=user,
-            password=password,
-            database=database
+        sqlite_db = SQLiteDB(
+            host=os.getenv('SQLITE_HOST', '192.168.178.100'),
+            port=int(os.getenv('SQLITE_PORT', 8001))
         )
-        
-        # Versuche zu verbinden
-        influxdb_client.ping()
-        logger.info(f"InfluxDB verbunden: {host}:{port}/{database}")
+        logger.info(f"✅ SQLite Datenbank initialisiert")
         return True
     except Exception as e:
-        logger.warning(f"InfluxDB Verbindung fehlgeschlagen: {e}")
-        influxdb_client = None
+        logger.error(f"SQLite Initialisierung fehlgeschlagen: {e}")
+        sqlite_db = None
         return False
 
 
-def write_scan_to_influxdb(results):
-    """Schreibe Scan-Ergebnisse in InfluxDB"""
-    if not influxdb_client:
-        logger.debug("InfluxDB nicht verfügbar - überspringe Speicherung")
-        return False
-    
+# Legacy-Funktion für Kompatibilität
+def init_influxdb():
+    """Legacy: Nutze jetzt SQLite statt InfluxDB"""
+    return init_database()
+
+
+def write_scan_to_sqlite(results):
+    """Schreibe Scan-Ergebnisse in SQLite via REST API"""
     try:
-        lines = []
-        timestamp_ns = int(datetime.utcnow().timestamp() * 1e9)
-        
         for result in results:
-            # Escape band name für InfluxDB Line-Protokoll
-            band_name_escaped = result.band.name.replace(' ', '\\ ').replace('(', '\\(').replace(')', '\\)')
+            # Erstelle sauberen band name ohne Klammern (z.B. "Solar Radio (20-80 MHz)" → "Solar Radio")
+            band_name_clean = result.band.name.split('(')[0].strip()
             
-            # Schreibe Gesamtband-Statistik als frequency_scan via Line-Protokoll
-            line_scan = (f"frequency_scan,band_name={band_name_escaped},active={result.active} "
-                        f"freq_start={float(result.band.freq_start)},"
-                        f"freq_end={float(result.band.freq_end)},"
-                        f"avg_power={float(result.avg_power)},"
-                        f"peak_power={float(result.peak_power)},"
-                        f"noise_floor={float(result.noise_floor)},"
-                        f"signal_to_noise={float(result.signal_to_noise)},"
-                        f"activity_percentage={float(result.activity_percentage)},"
-                        f"num_peaks={int(result.num_peaks)},"
-                        f"scan_time={float(result.scan_time)} {timestamp_ns}")
-            lines.append(line_scan)
-            
-            # Schreibe Spektrum-Daten für Heatmap-Generator (alle 1000 Frequenzen) via Line-Protokoll
             logger.debug(f"Frequenzen: {result.frequencies is not None}, Shape: {result.frequencies.shape if result.frequencies is not None else 'N/A'}")
             logger.debug(f"Power-Werte: {result.power_values is not None}, Shape: {result.power_values.shape if result.power_values is not None else 'N/A'}")
             
             if result.frequencies is not None and result.power_values is not None:
-                spectrum_count = 0
-                for i, (freq, power) in enumerate(zip(result.frequencies, result.power_values)):
-                    # InfluxDB Line-Protokoll: measurement[,tag=value] field=value[,field=value] [timestamp]
-                    line_spectrum = (f"frequency_spectrum,band_name={band_name_escaped} "
-                                    f"frequency={float(freq)},power={float(power)} {timestamp_ns + i}")
-                    lines.append(line_spectrum)
-                    spectrum_count += 1
-                logger.info(f"Spektrum-Punkte hinzugefügt: {spectrum_count}")
+                # Erstelle Payload für SQLite REST API
+                # Format: {timestamp, band_name, data: [{frequency, power}, ...]}
+                data_points = []
+                for freq, power in zip(result.frequencies, result.power_values):
+                    # Filtere ungültige Werte (NaN, Inf)
+                    if not (np.isnan(freq) or np.isnan(power) or np.isinf(freq) or np.isinf(power)):
+                        data_points.append({
+                            "frequency": float(freq),
+                            "power": float(power)
+                        })
+                
+                payload = {
+                    "timestamp": result.timestamp,
+                    "band_name": band_name_clean,
+                    "data": data_points
+                }
+                
+                logger.debug(f"SQLite Payload: {len(data_points)} Frequenzpunkte für {band_name_clean}")
+                
+                # Sende zu SQLite REST API
+                try:
+                    response = requests.post(
+                        f"{SQLITE_REST_URL}/api/write",
+                        json=payload,
+                        timeout=10
+                    )
+                    if response.status_code == 201:
+                        logger.info(f"✅ {len(data_points)} Spektrum-Punkte zu SQLite geschrieben ({band_name_clean})")
+                    else:
+                        logger.error(f"SQLite Write Error: {response.status_code} - {response.text}")
+                        return False
+                except Exception as e:
+                    logger.error(f"SQLite REST API Fehler: {e}", exc_info=True)
+                    return False
             else:
                 logger.warning("Frequenzen oder Power-Werte sind None!")
         
-        if lines:
-            # Sende alle Lines zu InfluxDB via HTTP Line-Protokoll
-            host = os.getenv('INFLUXDB_HOST', 'localhost')
-            port = int(os.getenv('INFLUXDB_PORT', 8086))
-            user = os.getenv('INFLUXDB_USER', 'admin')
-            password = os.getenv('INFLUXDB_PASSWORD', 'admin')
-            database = os.getenv('INFLUXDB_DATABASE', 'rtl_monitor')
-            
-            url = f"http://{host}:{port}/write?db={database}&u={user}&p={password}"
-            data = "\n".join(lines)
-            
-            try:
-                response = requests.post(url, data=data, timeout=10)
-                logger.info(f"InfluxDB HTTP Response: {response.status_code} - {len(lines)} Linien geschrieben")
-                if response.status_code != 204:
-                    logger.error(f"InfluxDB Fehler: {response.text}")
-                return response.status_code == 204
-            except Exception as e:
-                logger.error(f"InfluxDB HTTP Request Fehler: {e}", exc_info=True)
-                return False
-        return False
+        return True
     except Exception as e:
-        logger.error(f"Fehler beim Schreiben in InfluxDB: {e}", exc_info=True)
+        logger.error(f"Fehler beim Schreiben zu SQLite: {e}", exc_info=True)
         return False
+
+
+def write_scan_to_influxdb(results):
+    """DEPRECATED: Behalten für Rückwärtskompatibilität, leitet zu SQLite weiter"""
+    return write_scan_to_sqlite(results)
 def init_heatmap_generator():
     """Initialisiert den Heatmap-Generator beim Start"""
     global heatmap_gen
@@ -161,13 +151,13 @@ def init_scanner():
 @app.before_request
 def before_request():
     """Initialisiere Generatoren beim ersten Request"""
-    global heatmap_gen, scanner, influxdb_client
+    global heatmap_gen, scanner, sqlite_db
     if heatmap_gen is None:
         init_heatmap_generator()
     if scanner is None:
         init_scanner()
-    if influxdb_client is None:
-        init_influxdb()
+    if sqlite_db is None:
+        init_database()
 
 
 @app.route('/', methods=['GET'])
@@ -185,37 +175,113 @@ def discovery():
 @app.route('/api/heatmap', methods=['GET'])
 def get_heatmap():
     """
-    REST Endpoint für Heatmap-Daten
+    REST Endpoint für Heatmap-Daten mit flexibler Zeit-Auswahl
     
     Query Parameter:
-    - time_range: '1h', '6h', '24h', '7d', '30d' (default: '24h')
+    - time_range: Vordefinierte Zeiträume
+      * '1h', '6h', '24h', '7d', '30d' (Standard)
+      * 'today': Heute ab 00:00
+      * 'yesterday': Gestern (full day)
+      * 'day_before': Vorgestern (full day)
+      * 'this_week': Diese Woche ab Montag
+      * 'last_week': Letzte Woche (Montag-Sonntag)
+      * 'this_month': Dieser Monat ab 1.
+    - start_time: ISO-8601 Timestamp (überschreibt time_range) z.B. "2025-11-17T10:00:00"
+    - end_time: ISO-8601 Timestamp (optional, default: jetzt)
+    - band_name: Band-Name zum Filtern (optional, default: 'Solar Radio')
     - freq_start: Startfrequenz in MHz (optional)
     - freq_end: Endfrequenz in MHz (optional)
     - cmap: Colormap ('viridis', 'jet', 'plasma', etc.) (default: 'viridis')
     - format: 'png' oder 'json' (default: 'png')
+    
+    Beispiele:
+    - /api/heatmap?time_range=yesterday
+    - /api/heatmap?time_range=today
+    - /api/heatmap?start_time=2025-11-16T10:00:00&end_time=2025-11-17T10:00:00
+    - /api/heatmap?time_range=this_week&band_name=Solar%20Radio
     
     Response:
     - PNG: Direktes Bild
     - JSON: {
         "status": "success" | "error",
         "time_range": "...",
-        "freq_start": ...,
-        "freq_end": ...,
         "data": "base64_encoded_image",
         "message": "..."
     }
     """
     try:
         # Parameter auslesen
-        time_range = request.args.get('time_range', '24h')
+        time_range_param = request.args.get('time_range', '24h')
+        start_time_param = request.args.get('start_time', None)
+        end_time_param = request.args.get('end_time', None)
+        band_name = request.args.get('band_name', 'Solar Radio')
         freq_start = request.args.get('freq_start', type=float, default=None)
         freq_end = request.args.get('freq_end', type=float, default=None)
         cmap = request.args.get('cmap', 'viridis')
         response_format = request.args.get('format', 'png')
         
+        # Konvertiere Zeit-Presets zu time_range Format
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now()  # Lokale Zeit (nicht UTC!)
+        
+        # WICHTIG: Diese Variablen müssen immer definiert sein!
+        use_custom_timestamps = False
+        
+        if start_time_param and end_time_param:
+            # Benutzer hat explizit start_time/end_time angegeben
+            use_custom_timestamps = True
+            try:
+                datetime.fromisoformat(start_time_param.replace('Z', '+00:00'))
+                datetime.fromisoformat(end_time_param.replace('Z', '+00:00'))
+                logger.info(f"Custom Zeit-Interval: {start_time_param} bis {end_time_param}")
+            except Exception as e:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Ungültiges Zeit-Format: {e}'
+                }), 400
+        elif time_range_param in ['today', 'yesterday', 'day_before', 'this_week', 'last_week', 'this_month']:
+            # Zeit-Preset erkannt - konvertiere zu absoluten Zeitstempeln
+            preset_map = {
+                'today': {
+                    'start': now.replace(hour=0, minute=0, second=0, microsecond=0),
+                    'end': now
+                },
+                'yesterday': {
+                    'start': (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0),
+                    'end': now.replace(hour=0, minute=0, second=0, microsecond=0)
+                },
+                'day_before': {
+                    'start': (now - timedelta(days=2)).replace(hour=0, minute=0, second=0, microsecond=0),
+                    'end': (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+                },
+                'this_week': {
+                    'start': (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0),
+                    'end': now
+                },
+                'last_week': {
+                    'start': (now - timedelta(days=now.weekday() + 7)).replace(hour=0, minute=0, second=0, microsecond=0),
+                    'end': (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+                },
+                'this_month': {
+                    'start': now.replace(day=1, hour=0, minute=0, second=0, microsecond=0),
+                    'end': now
+                },
+            }
+            
+            preset = preset_map[time_range_param]
+            start_time_param = preset['start'].isoformat()
+            end_time_param = preset['end'].isoformat()
+            use_custom_timestamps = True
+            logger.info(f"Zeit-Preset '{time_range_param}': {start_time_param} bis {end_time_param}")
+        else:
+            # Standard time_range verwenden (1h, 6h, 24h, 7d, 30d)
+            start_time_param = None
+            end_time_param = None
+            use_custom_timestamps = False
+        
         # Validiere Parameter
-        valid_ranges = ['1h', '6h', '24h', '7d', '30d']
-        if time_range not in valid_ranges:
+        valid_ranges = ['1h', '6h', '24h', '7d', '30d', 'today', 'yesterday', 'day_before', 'this_week', 'last_week', 'this_month']
+        if time_range_param not in valid_ranges:
             return jsonify({
                 'status': 'error',
                 'message': f'Ungültiger Zeitraum. Erlaubt: {valid_ranges}'
@@ -229,18 +295,31 @@ def get_heatmap():
                 }), 400
         
         # Heatmap generieren
-        heatmap_base64 = heatmap_gen.get_heatmap_data(
-            time_range=time_range,
-            freq_start=freq_start,
-            freq_end=freq_end,
-            cmap=cmap
-        )
+        if use_custom_timestamps:
+            heatmap_base64 = heatmap_gen.get_heatmap_data(
+                time_range='custom',  # Marker dass wir Timestamps verwenden
+                band_name=band_name,
+                freq_start=freq_start,
+                freq_end=freq_end,
+                start_time=start_time_param,
+                end_time=end_time_param,
+                cmap=cmap
+            )
+        else:
+            heatmap_base64 = heatmap_gen.get_heatmap_data(
+                time_range=time_range_param,
+                band_name=band_name,
+                freq_start=freq_start,
+                freq_end=freq_end,
+                cmap=cmap
+            )
         
         if heatmap_base64 is None:
             return jsonify({
                 'status': 'no_data',
                 'message': 'Keine Daten verfügbar. Bitte später erneut versuchen.',
                 'time_range': time_range,
+                'band_name': band_name,
                 'timestamp': datetime.now().isoformat()
             }), 202
         
@@ -391,9 +470,18 @@ def get_bands():
 
 @app.route('/api/time-ranges', methods=['GET'])
 def get_time_ranges():
-    """Gibt verfügbare Zeiträume zurück"""
+    """Gibt verfügbare Zeiträume und Presets zurück"""
     return jsonify({
-        'time_ranges': list(heatmap_gen.TIME_RANGES.keys()) if heatmap_gen else ['1h', '6h', '24h', '7d', '30d']
+        'standard_ranges': ['1h', '6h', '24h', '7d', '30d'],
+        'presets': {
+            'today': 'Heute ab 00:00',
+            'yesterday': 'Gestern (full day)',
+            'day_before': 'Vorgestern (full day)',
+            'this_week': 'Diese Woche ab Montag',
+            'last_week': 'Letzte Woche (Montag-Sonntag)',
+            'this_month': 'Dieser Monat ab 1.'
+        },
+        'custom': 'Auch möglich: start_time=ISO-8601&end_time=ISO-8601'
     })
 
 
@@ -412,19 +500,38 @@ def get_colormaps():
 def health_check():
     """Health-Check Endpoint"""
     try:
-        if heatmap_gen and heatmap_gen.client:
-            return jsonify({
-                'status': 'healthy',
-                'influxdb_connected': True,
-                'timestamp': datetime.now().isoformat()
-            })
+        health_status = {
+            'status': 'healthy',
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # Prüfe Heatmap Generator
+        if heatmap_gen:
+            health_status['heatmap_generator'] = 'connected'
         else:
-            return jsonify({
-                'status': 'degraded',
-                'influxdb_connected': False,
-                'message': 'InfluxDB nicht verbunden',
-                'timestamp': datetime.now().isoformat()
-            }), 503
+            health_status['heatmap_generator'] = 'disconnected'
+        
+        # Prüfe SQLite REST API
+        try:
+            sqlite_response = requests.get(f"{SQLITE_REST_URL}/health", timeout=2)
+            if sqlite_response.status_code == 200:
+                health_status['sqlite_rest_api'] = 'healthy'
+            else:
+                health_status['sqlite_rest_api'] = 'unhealthy'
+                health_status['status'] = 'degraded'
+        except:
+            health_status['sqlite_rest_api'] = 'unavailable'
+            health_status['status'] = 'degraded'
+        
+        # Prüfe Scanner
+        if scanner:
+            health_status['scanner'] = 'initialized'
+        else:
+            health_status['scanner'] = 'not_initialized'
+        
+        status_code = 200 if health_status['status'] == 'healthy' else 503
+        return jsonify(health_status), status_code
+        
     except Exception as e:
         logger.error(f"Health-Check Fehler: {e}")
         return jsonify({

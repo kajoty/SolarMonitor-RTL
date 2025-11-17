@@ -1,16 +1,16 @@
 """
 FFT Heatmap Generator für RTL-SDR Frequenzspektrum-Daten
-Generiert Heatmaps aus InfluxDB-Daten für verschiedene Zeiträume
+Generiert Heatmaps aus SQLite-Daten (via REST API) für verschiedene Zeiträume
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from datetime import datetime, timedelta
-from influxdb import InfluxDBClient
 import os
 import io
 import base64
+import requests
 from typing import Tuple, Optional, List
 import logging
 
@@ -18,65 +18,54 @@ logger = logging.getLogger(__name__)
 
 
 class FFTHeatmapGenerator:
-    """Generiert FFT Heatmaps aus Frequenzspektrum-Daten"""
+    """Generiert FFT Heatmaps aus Frequenzspektrum-Daten (SQLite via REST API)"""
     
-    # Zeitraum-Presets (in Minuten)
+    # Zeitraum-Presets
     TIME_RANGES = {
-        '1h': 60,
-        '6h': 360,
-        '24h': 1440,
-        '7d': 10080,
-        '30d': 43200,
+        '1h': '1h',
+        '6h': '6h',
+        '24h': '24h',
+        '7d': '7d',
+        '30d': '30d',
     }
     
-    def __init__(self, influxdb_host: str, influxdb_port: int, 
-                 influxdb_user: str, influxdb_password: str, 
-                 influxdb_database: str):
+    def __init__(self, sqlite_rest_url: str = "http://localhost:8002"):
         """
-        Initialisiert den Heatmap-Generator mit InfluxDB Verbindung
+        Initialisiert den Heatmap-Generator mit SQLite REST API Verbindung
         
         Args:
-            influxdb_host: Hostname des InfluxDB Servers
-            influxdb_port: Port des InfluxDB Servers
-            influxdb_user: Benutzername
-            influxdb_password: Passwort
-            influxdb_database: Datenbankname
+            sqlite_rest_url: URL des SQLite REST API Servers (default: http://localhost:8002)
         """
-        self.influxdb_host = influxdb_host
-        self.influxdb_port = influxdb_port
-        self.influxdb_user = influxdb_user
-        self.influxdb_password = influxdb_password
-        self.influxdb_database = influxdb_database
-        self.client = None
+        self.sqlite_rest_url = sqlite_rest_url
+        self.timeout = 30  # Timeout für API-Anfragen
         
+        # Test Verbindung
         try:
-            self._connect()
+            response = requests.get(f"{self.sqlite_rest_url}/health", timeout=5)
+            if response.status_code == 200:
+                logger.info(f"✅ SQLite REST API erreichbar unter {self.sqlite_rest_url}")
+            else:
+                logger.warning(f"⚠️ SQLite REST API antwortet mit Status {response.status_code}")
         except Exception as e:
-            logger.warning(f"InfluxDB Verbindung fehlgeschlagen: {e}")
-    
-    def _connect(self):
-        """Verbindung zu InfluxDB herstellen"""
-        self.client = InfluxDBClient(
-            host=self.influxdb_host,
-            port=self.influxdb_port,
-            username=self.influxdb_user,
-            password=self.influxdb_password,
-            database=self.influxdb_database
-        )
+            logger.warning(f"⚠️ SQLite REST API nicht erreichbar: {e}")
     
     def get_frequency_data(self, time_range: str = '24h', 
                           band_name: str = None,
                           freq_start: Optional[float] = None,
                           freq_end: Optional[float] = None,
+                          start_time: str = None,
+                          end_time: str = None,
                           exclude_last_scans: int = 2) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Lädt Frequenzspektrum-Daten aus InfluxDB
+        Lädt Frequenzspektrum-Daten aus SQLite via REST API
         
         Args:
-            time_range: Zeitraum ('1h', '6h', '24h', '7d', '30d')
-            band_name: Band-Name zum Filtern (z.B. 'Space Weather')
+            time_range: Zeitraum ('1h', '6h', '24h', '7d', '30d') ODER None wenn start_time verwendet
+            band_name: Band-Name zum Filtern (z.B. 'Solar Radio')
             freq_start: Startfrequenz in MHz (optional)
             freq_end: Endfrequenz in MHz (optional)
+            start_time: ISO-8601 Start-Timestamp (optional, überschreibt time_range)
+            end_time: ISO-8601 End-Timestamp (optional)
             exclude_last_scans: Anzahl der neuesten Scans auszuschließen (default: 2)
             
         Returns:
@@ -85,142 +74,142 @@ class FFTHeatmapGenerator:
             - zeitstempel: Array mit Zeitstempeln
             - frequenzen: Array mit Frequenzen in MHz
         """
-        if not self.client:
-            raise RuntimeError("InfluxDB ist nicht verbunden")
-        
-        if time_range not in self.TIME_RANGES:
+        # Validierung nur wenn kein start_time
+        if not start_time and time_range not in self.TIME_RANGES:
             raise ValueError(f"Ungültiger Zeitraum. Erlaubt: {list(self.TIME_RANGES.keys())}")
         
-        # Baue Query
-        # Nutze REGEX um Band-Namen zu matchen
-        band_condition = ""
+        # Bereite Band-Namen vor (sauber ohne Klammern)
+        band_name_clean = None
         if band_name:
-            # Extrahiere Kern-Namen für REGEX (z.B. "Space Weather" aus "Space Weather (50-1000 MHz)")
-            band_regex = band_name.split('(')[0].strip()
-            band_condition = f"band_name =~ /{band_regex}/"
-        
-        # Baue Frequenz-Bedingung
-        freq_condition = ""
-        if freq_start is not None and freq_end is not None:
-            freq_condition = f"\"frequency\" >= {freq_start} AND \"frequency\" <= {freq_end}"
-        
-        # Kombiniere WHERE-Bedingungen
-        where_parts = []
-        if band_condition:
-            where_parts.append(band_condition)
-        if freq_condition:
-            where_parts.append(freq_condition)
-        
-        where_clause = ""
-        if where_parts:
-            where_clause = "WHERE " + " AND ".join(where_parts)
-        
-        # Bestimme LIMIT: Hole Daten aus time_range, dann schließe letzte N Scans aus
-        # Ein Scan = 500 Frequenzpunkte, also exclude_last_scans=2 = 1000 Punkte ausschließen
-        limit_value = 50000 - (exclude_last_scans * 500) if exclude_last_scans else 50000
-        limit_clause = f"LIMIT {limit_value}"
-        
-        # Finale Query
-        query = f"""
-            SELECT "frequency", "power" 
-            FROM "frequency_spectrum"
-            {where_clause}
-            ORDER BY time DESC
-            {limit_clause}
-        """
+            band_name_clean = band_name.split('(')[0].strip()
         
         try:
-            result = self.client.query(query)
+            # Rufe SQLite REST API auf
+            params = {
+                'band_name': band_name_clean,
+            }
             
-            if not result:
-                logger.warning(f"Keine Daten für Zeitraum {time_range} gefunden")
+            # Verwende start_time/end_time wenn vorhanden, sonst time_range
+            if start_time and end_time:
+                params['start_time'] = start_time
+                params['end_time'] = end_time
+                logger.info(f"SQLite Query: time_range={start_time} bis {end_time}, band_name={band_name_clean}")
+            else:
+                params['time_range'] = time_range
+                logger.info(f"SQLite Query: time_range={time_range}, band_name={band_name_clean}")
+            
+            response = requests.get(
+                f"{self.sqlite_rest_url}/api/read",
+                params=params,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            
+            result = response.json()
+            
+            if result.get('status') != 'success' and result.get('status') != 'no_data':
+                logger.error(f"SQLite REST API Fehler: {result.get('error', 'unbekannt')}")
                 return np.array([]), np.array([]), np.array([])
             
-            # Konvertiere InfluxDB-Ergebnisse in Arrays
-            spektrum_data, timestamps, frequencies = self._parse_influxdb_result(result)
+            # Parse die Antwort
+            spektrum_data, timestamps, frequencies = self._parse_sqlite_response(
+                result, 
+                freq_start=freq_start,
+                freq_end=freq_end,
+                exclude_last_scans=exclude_last_scans
+            )
+            
+            logger.info(f"✅ Geladen: {len(timestamps)} Scans, {len(frequencies)} Frequenzen, {np.sum(~np.isnan(spektrum_data))} gültige Punkte")
             
             return spektrum_data, timestamps, frequencies
             
+        except requests.exceptions.RequestException as e:
+            logger.error(f"SQLite REST API Fehler: {e}")
+            return np.array([]), np.array([]), np.array([])
         except Exception as e:
-            logger.error(f"Fehler beim Laden von InfluxDB-Daten: {e}")
+            logger.error(f"Fehler beim Laden der SQLite-Daten: {e}", exc_info=True)
             return np.array([]), np.array([]), np.array([])
     
-    def _parse_influxdb_result(self, result) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _parse_sqlite_response(self, response_data: dict,
+                              freq_start: Optional[float] = None,
+                              freq_end: Optional[float] = None,
+                              exclude_last_scans: int = 2) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Parse InfluxDB Query-Ergebnisse in strukturierte Arrays
+        Parse SQLite REST API Response in strukturierte Arrays
+        
+        Response Format:
+        {
+            "status": "success",
+            "timestamps": ["2025-11-17T20:00:00Z", ...],
+            "frequencies": [20.0, 20.12, ..., 80.0],
+            "data": [[power_values_scan1], [power_values_scan2], ...],
+            "rows": N,
+            "columns": M
+        }
         
         Returns:
             Tuple mit (spektrum_data, timestamps, frequencies)
         """
-        data_dict = {}
-        timestamps_set = set()
-        frequencies_set = set()
-        
         try:
-            # result ist ein ResultSet, iterieren gibt Listen von Dicts zurück
-            for points_list in result:
-                # points_list ist eine Liste von Dictionary-Objekten
-                for point in points_list:
-                    try:
-                        timestamp = point.get('time')
-                        frequency_str = point.get('frequency')
-                        power = point.get('power')
-                        
-                        if timestamp and frequency_str is not None and power is not None:
-                            freq_float = float(frequency_str)  # frequency kommt als String von InfluxDB
-                            power_float = float(power)
-                            
-                            timestamps_set.add(timestamp)
-                            frequencies_set.add(freq_float)
-                            
-                            key = (timestamp, freq_float)
-                            data_dict[key] = power_float
-                    except (KeyError, TypeError, ValueError) as e:
-                        logger.debug(f"Fehler beim Parsen eines Punktes: {e}")
-                        continue
+            timestamps = response_data.get('timestamps', [])
+            frequencies = np.array(response_data.get('frequencies', []), dtype=float)
+            data_2d = response_data.get('data', [])
             
-            if not data_dict:
-                logger.warning(f"Keine Datenpunkte nach Parsing gefunden")
+            if not timestamps or len(frequencies) == 0 or len(data_2d) == 0:
+                logger.warning("SQLite Response ist leer")
                 return np.array([]), np.array([]), np.array([])
-        
+            
+            # Konvertiere data zu numpy array
+            spektrum_data = np.array(data_2d, dtype=float)
+            
+            # Shape sollte sein: (N_timestamps, N_frequencies)
+            if spektrum_data.shape[0] != len(timestamps):
+                logger.warning(f"Shape-Mismatch: {spektrum_data.shape[0]} != {len(timestamps)}")
+                # Versuche zu transponieren wenn nötig
+                if spektrum_data.shape[1] == len(timestamps):
+                    spektrum_data = spektrum_data.T
+            
+            # Filtere nach Frequenzbereich wenn angegeben
+            if freq_start is not None or freq_end is not None:
+                f_start = freq_start if freq_start is not None else frequencies[0]
+                f_end = freq_end if freq_end is not None else frequencies[-1]
+                
+                freq_mask = (frequencies >= f_start) & (frequencies <= f_end)
+                frequencies = frequencies[freq_mask]
+                spektrum_data = spektrum_data[:, freq_mask]
+            
+            # Schließe letzte N Scans aus (sind oft unvollständig)
+            if exclude_last_scans > 0 and len(timestamps) > exclude_last_scans:
+                spektrum_data = spektrum_data[:-exclude_last_scans, :]
+                timestamps = timestamps[:-exclude_last_scans]
+            
+            logger.info(f"Parsed SQLite: {spektrum_data.shape} Array, {len(timestamps)} Timestamps, {len(frequencies)} Frequenzen")
+            
+            return spektrum_data, timestamps, frequencies
+            
         except Exception as e:
-            logger.error(f"Fehler beim Parsing der InfluxDB-Ergebnisse: {e}", exc_info=True)
+            logger.error(f"Fehler beim Parsing der SQLite-Response: {e}", exc_info=True)
             return np.array([]), np.array([]), np.array([])
-        
-        # Sortiere Arrays
-        timestamps = sorted(list(timestamps_set))
-        frequencies = sorted(list(frequencies_set))
-        
-        if not timestamps or not frequencies:
-            return np.array([]), np.array([]), np.array([])
-        
-        # Erstelle 2D-Array (Zeit x Frequenz)
-        spektrum_data = np.zeros((len(timestamps), len(frequencies)))
-        
-        for i, ts in enumerate(timestamps):
-            for j, freq in enumerate(frequencies):
-                spektrum_data[i, j] = data_dict.get((ts, freq), np.nan)
-        
-        return spektrum_data, timestamps, np.array(frequencies)
     
     def generate_heatmap(self, spektrum_data: np.ndarray, 
                         timestamps: List[str],
                         frequencies: np.ndarray,
                         title: str = "FFT Spektrum Heatmap",
                         cmap: str = 'viridis',
-                        figsize: Tuple[int, int] = (14, 6),
+                        figsize: Tuple[int, int] = None,
                         freq_min: Optional[float] = None,
                         freq_max: Optional[float] = None) -> io.BytesIO:
         """
         Generiert eine Heatmap-Grafik
         
         Args:
-            spektrum_data: 2D Array mit Spektraldaten
+            spektrum_data: 2D Array mit Spektraldaten (time x frequency)
             timestamps: Liste mit Zeitstempeln
             frequencies: Array mit Frequenzen
             title: Titel der Grafik
             cmap: Colormap (z.B. 'viridis', 'jet', 'plasma')
-            figsize: Größe der Grafik
+            figsize: Größe der Grafik (default: auto basierend auf Scan-Anzahl)
+                    Wird automatisch berechnet: (16, 0.35*n_scans + 2) inches
             
         Returns:
             BytesIO Objekt mit PNG-Bild
@@ -229,64 +218,102 @@ class FFTHeatmapGenerator:
             logger.warning("Leere Spektraldaten - kann Heatmap nicht generieren")
             return None
         
+        # AUTO-SCALING: Höhe basierend auf Anzahl der Scans berechnen
+        # Kompaktere Höhe: 0.15 Zoll pro Scan (kompakter), minimum 5 Zoll, maximum 18 Zoll
+        if figsize is None:
+            n_scans = len(timestamps)
+            # Zielformel: 0.15 Zoll pro Scan (deutlich kompakter als vorher)
+            # Minimum 5 Zoll für lesbare kleine Heatmaps
+            # Maximum 18 Zoll um Memory-Probleme zu vermeiden
+            target_height = min(18, max(5, 0.15 * n_scans + 1.5))
+            figsize = (16, target_height)
+            
+            # Wenn wir zu viele Scans haben, warne den User
+            if n_scans > 100:
+                logger.warning(f"⚠️ Viele Scans ({n_scans}) - Heatmap ist {target_height:.1f} Zoll hoch. "
+                              f"Erwägen Sie, den time_range zu reduzieren oder exclude_last_scans zu erhöhen.")
+            
+            logger.info(f"Auto-Figsize für {n_scans} Scans: ({figsize[0]}, {figsize[1]:.1f}) inches (~{int(figsize[1]*100)}px @ 100dpi)")
+        
         fig, ax = plt.subplots(figsize=figsize)
         
         # Normalisiere Daten (entferne NaN-Werte)
-        data_clean = np.nan_to_num(spektrum_data, nan=np.nanmin(spektrum_data))
+        data_clean = np.nan_to_num(spektrum_data, nan=-100)  # NaN → -100 dB (sehr niedrig)
         
-        # Für dB-Werte: verwende die Rohdaten direkt
-        # dB-Werte sind typisch -100 bis 0, negative Werte sind normal
-        # Benutze Perzentile für bessere Kontrast-Auflösung
-        data_valid = data_clean[data_clean != np.nanmin(spektrum_data)]
+        # Für dB-Werte: verwende robuste Normalisierung
+        data_valid = data_clean[np.isfinite(data_clean) & (data_clean > -200)]
         
         if len(data_valid) > 0:
-            # Verwende 10% und 90% Perzentile für bessere Auflösung
-            vmin = np.percentile(data_valid, 10)
-            vmax = np.percentile(data_valid, 90)
-            # Stelle sicher, dass vmin < vmax
+            vmin = np.percentile(data_valid, 5)
+            vmax = np.percentile(data_valid, 95)
             if vmin >= vmax:
                 vmin = np.min(data_valid)
                 vmax = np.max(data_valid)
         else:
-            vmin = 0
-            vmax = 1
+            vmin = -100
+            vmax = -50
         
-        # Erstelle Heatmap mit Daten direkt (dB-Werte)
-        # Verwende Band-Grenzen wenn vorhanden, sonst Daten-Grenzen
+        # Frequenz-Grenzen
         y_min = freq_min if freq_min is not None else frequencies[0]
         y_max = freq_max if freq_max is not None else frequencies[-1]
         
-        im = ax.imshow(data_clean.T, aspect='auto', origin='lower',
-                       cmap=cmap, vmin=vmin, vmax=vmax,
-                       extent=[0, len(timestamps), y_min, y_max])
+        # Erstelle Heatmap
+        # WICHTIG: Data shape ist (N_timestamps, N_frequencies)
+        # Aber imshow zeigt: Rows als Y-Achse, Columns als X-Achse
+        # Also: data[i, j] → Y-Position = i (Zeit), X-Position = j (Frequenz)
+        # Das bedeutet: X=Frequenz, Y=Zeit (zeitlich von unten nach oben)
+        # 
+        # Mit origin='lower': untere Reihe = erste Zeitpunkt (älteste Zeit)
+        # Mit origin='upper': obere Reihe = erste Zeitpunkt (jüngste Zeit)
+        #
+        # Wir wollen: X=Frequenz (20-80 MHz), Y=Zeit (alt→neu von unten nach oben)
+        # Also: extent = [freq_min, freq_max, zeit_min_index, zeit_max_index]
+        #
+        # Aber wir haben reversed timestamps (neueste zuerst), also:
+        # origin='upper' um zeitliche Progression zu zeigen
         
-        # Achsenbeschriftungen
-        ax.set_ylabel('Frequenz (MHz)')
-        ax.set_xlabel('Zeit')
+        im = ax.imshow(data_clean, aspect='auto', origin='upper',
+                       cmap=cmap, vmin=vmin, vmax=vmax,
+                       extent=[y_min, y_max, len(timestamps)-1, 0],  # [freq_min, freq_max, zeit_max, zeit_min]
+                       interpolation='nearest')
+        
+        # Achsenbeschriftungen - VERTAUSCHT wegen der Transposition!
+        ax.set_xlabel('Frequenz (MHz)', fontsize=11)
+        ax.set_ylabel('Zeit', fontsize=11)
         ax.set_title(title, fontsize=14, fontweight='bold')
         
-        # Zeitachsen-Formatierung
+        # Y-Achse (Zeit) formatieren - KORREKT mit echten Zeitstempeln
         if len(timestamps) > 0:
-            step = max(1, len(timestamps) // 10)
-            tick_indices = np.arange(0, len(timestamps), step)
-            ax.set_xticks(tick_indices)
+            # Bestimme Anzahl der Ticks basierend auf Anzahl der Zeitpunkte
+            num_ticks = min(10, max(3, len(timestamps)))
+            if len(timestamps) > 20:
+                # Für viele Zeitpunkte: reduziere Anzahl
+                step = len(timestamps) // 8
+                tick_indices = list(range(0, len(timestamps), step))
+                if len(timestamps) - 1 not in tick_indices:
+                    tick_indices.append(len(timestamps) - 1)
+            else:
+                # Für wenige Zeitpunkte: zeige alle
+                tick_indices = list(range(len(timestamps)))
             
-            # Format Zeitstempel kurz und lesbar
+            # Set Y ticks (Zeit) - weil origin='upper', indices sind umgekehrt
+            ax.set_yticks(tick_indices)
+            
             formatted_times = []
             for i in tick_indices:
-                time_str = timestamps[i]
-                try:
-                    # Parse ISO format: "2025-11-17T14:32:10.123Z"
-                    dt = datetime.fromisoformat(time_str.replace('Z', '+00:00'))
-                    # Format as: "14:32" (HH:MM) oder "17 14:32" (DD HH:MM) für lange Zeiträume
-                    if len(timestamps) > 50:  # Lange Zeiträume (Tage)
-                        formatted_times.append(dt.strftime('%d %H:%M'))
-                    else:  # Kurze Zeiträume (Stunden)
-                        formatted_times.append(dt.strftime('%H:%M'))
-                except:
-                    formatted_times.append(time_str[:10])  # Fallback: nur Datum
+                if i < len(timestamps):
+                    time_str = timestamps[i]  # Timestamps sind bereits reversed
+                    try:
+                        dt = datetime.fromisoformat(time_str.replace('Z', '+00:00'))
+                        # Formatiere Zeit basierend auf Zeitspanne
+                        if len(timestamps) > 50:
+                            formatted_times.append(dt.strftime('%m-%d %H:%M'))
+                        else:
+                            formatted_times.append(dt.strftime('%H:%M:%S'))
+                    except:
+                        formatted_times.append(time_str[:10])
             
-            ax.set_xticklabels(formatted_times, rotation=45, ha='right', fontsize=9)
+            ax.set_yticklabels(formatted_times, fontsize=9)
         
         # Colorbar
         cbar = plt.colorbar(im, ax=ax)
@@ -326,6 +353,8 @@ class FFTHeatmapGenerator:
                         band_name: str = None,
                         freq_start: Optional[float] = None,
                         freq_end: Optional[float] = None,
+                        start_time: str = None,
+                        end_time: str = None,
                         title: str = "FFT Spektrum Heatmap",
                         cmap: str = 'viridis',
                         exclude_last_scans: int = 2) -> Optional[str]:
@@ -333,10 +362,12 @@ class FFTHeatmapGenerator:
         All-in-One Methode: Lädt Daten und generiert Heatmap
         
         Args:
-            time_range: Zeitraum zum Anzeigen
+            time_range: Zeitraum zum Anzeigen (z.B. '24h') ODER None wenn start_time verwendet
             band_name: Band-Name zum Filtern
             freq_start: Startfrequenz
             freq_end: Endfrequenz
+            start_time: ISO-8601 Start-Timestamp (optional, überschreibt time_range)
+            end_time: ISO-8601 End-Timestamp (optional)
             title: Grafik-Titel
             cmap: Colormap
             exclude_last_scans: Anzahl der neuesten Scans auszuschließen (default: 2)
@@ -346,12 +377,15 @@ class FFTHeatmapGenerator:
         """
         try:
             spektrum_data, timestamps, frequencies = self.get_frequency_data(
-                time_range, band_name, freq_start, freq_end, exclude_last_scans=exclude_last_scans
+                time_range, band_name, freq_start, freq_end, 
+                start_time=start_time, end_time=end_time,
+                exclude_last_scans=exclude_last_scans
             )
             
             if spektrum_data.size == 0:
                 logger.warning(f"Keine Daten verfügbar für Heatmap-Generierung")
                 return None
+            
             return self.generate_heatmap_base64(
                 spektrum_data, timestamps, frequencies, title, cmap,
                 freq_min=freq_start, freq_max=freq_end
@@ -365,14 +399,5 @@ def create_heatmap_generator_from_env() -> FFTHeatmapGenerator:
     """
     Erstellt einen HeatmapGenerator aus Umgebungsvariablen
     """
-    from dotenv import load_dotenv
-    
-    load_dotenv()
-    
-    return FFTHeatmapGenerator(
-        influxdb_host=os.getenv('INFLUXDB_HOST', 'localhost'),
-        influxdb_port=int(os.getenv('INFLUXDB_PORT', 8086)),
-        influxdb_user=os.getenv('INFLUXDB_USER', 'admin'),
-        influxdb_password=os.getenv('INFLUXDB_PASSWORD', 'admin'),
-        influxdb_database=os.getenv('INFLUXDB_DATABASE', 'rtl_monitor')
-    )
+    sqlite_rest_url = os.getenv('SQLITE_REST_URL', 'http://localhost:8002')
+    return FFTHeatmapGenerator(sqlite_rest_url=sqlite_rest_url)
