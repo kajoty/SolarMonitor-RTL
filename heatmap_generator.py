@@ -187,7 +187,9 @@ class FFTHeatmapGenerator:
                         frequencies: np.ndarray,
                         title: str = "FFT Spektrum Heatmap",
                         cmap: str = 'viridis',
-                        figsize: Tuple[int, int] = (14, 6)) -> io.BytesIO:
+                        figsize: Tuple[int, int] = (14, 6),
+                        freq_min: Optional[float] = None,
+                        freq_max: Optional[float] = None) -> io.BytesIO:
         """
         Generiert eine Heatmap-Grafik
         
@@ -229,9 +231,13 @@ class FFTHeatmapGenerator:
             vmax = 1
         
         # Erstelle Heatmap mit Daten direkt (dB-Werte)
+        # Verwende Band-Grenzen wenn vorhanden, sonst Daten-Grenzen
+        y_min = freq_min if freq_min is not None else frequencies[0]
+        y_max = freq_max if freq_max is not None else frequencies[-1]
+        
         im = ax.imshow(data_clean.T, aspect='auto', origin='lower',
                        cmap=cmap, vmin=vmin, vmax=vmax,
-                       extent=[0, len(timestamps), frequencies[0], frequencies[-1]])
+                       extent=[0, len(timestamps), y_min, y_max])
         
         # Achsenbeschriftungen
         ax.set_ylabel('Frequenz (MHz)')
@@ -263,13 +269,16 @@ class FFTHeatmapGenerator:
                                timestamps: List[str],
                                frequencies: np.ndarray,
                                title: str = "FFT Spektrum Heatmap",
-                               cmap: str = 'viridis') -> Optional[str]:
+                               cmap: str = 'viridis',
+                               freq_min: Optional[float] = None,
+                               freq_max: Optional[float] = None) -> Optional[str]:
         """
         Generiert eine Heatmap und gibt sie als Base64-String zurück
         
         Ideal für die Einbettung in HTML
         """
-        buf = self.generate_heatmap(spektrum_data, timestamps, frequencies, title, cmap)
+        buf = self.generate_heatmap(spektrum_data, timestamps, frequencies, title, cmap, 
+                                   freq_min=freq_min, freq_max=freq_max)
         
         if buf is None:
             return None
@@ -304,7 +313,8 @@ class FFTHeatmapGenerator:
                 return None
             
             return self.generate_heatmap_base64(
-                spektrum_data, timestamps, frequencies, title, cmap
+                spektrum_data, timestamps, frequencies, title, cmap,
+                freq_min=freq_start, freq_max=freq_end
             )
         except Exception as e:
             logger.error(f"Fehler bei Heatmap-Generierung: {e}")
