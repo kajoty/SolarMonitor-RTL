@@ -78,84 +78,11 @@ class ScanResult:
 class RTLSDRScanner:
     """Scannt Frequenzbereiche mit RTL-SDR Hardware"""
     
-    # Solar/Cosmic Radio Monitoring - Sonnenaktivität und kosmische Störungen
+    # Space Weather Monitoring - nur Band 7
     # RTL2838 Tuner Frequenzbereich: 24-1766 MHz (praktisch: 50-1500 MHz)
-    # Index basiert auf .env MONITORED_BANDS Konfiguration
     COMMON_BANDS = [
-        # === Solar Radio Bursts & Cosmic Noise (klassische RadioAstronomy) ===
-        # Index 0 - Type I Solar Radio Storms
-        FrequencyBand("Type I Solar Bursts (50-150 MHz)", 50.0, 150.0, "Solar Type I Storms - Elektronische Streuungen in Sonnencorona"),
-        
-        # Index 1 - Type II & III Solar Radio Bursts
-        FrequencyBand("Type II/III Bursts (50-300 MHz)", 50.0, 300.0, "Type II Shockwave Emissions, Type III Electron Beams vom Solar Flare"),
-        
-        # Index 2 - Decametric Radiation (DAM)
-        FrequencyBand("Decametric Solar (10-40 MHz)", 10.0, 40.0, "Dekametrische Strahlung - Jupiter & Sonne (theoretisch)"),
-        
-        # === Cosmic Noise & Galactic Background ===
-        # Index 3
-        FrequencyBand("Cosmic Noise (50-200 MHz)", 50.0, 200.0, "Galaktischer Hintergrund + Sonnenrauschen"),
-        
-        # Index 4
-        FrequencyBand("Galactic Synchrotron (100-500 MHz)", 100.0, 500.0, "Galaxien-Synchrotronstrahlung, Milchstraße"),
-        
-        # === Solar Wind & Magnetosphere Effects ===
-        # Index 5
-        FrequencyBand("Magnetospheric Disturbances (300-1000 MHz)", 300.0, 1000.0, "Magnetosphären-Störungen durch Sonnenwind"),
-        
-        # Index 6
-        FrequencyBand("Radiation Belt Whistlers (100-300 MHz)", 100.0, 300.0, "Whistler Modus - Magnetosphären-Wellen"),
-        
-        # === Space Weather Monitoring ===
-        # Index 7
+        # Index 0 - Space Weather Broadband
         FrequencyBand("Space Weather (50-1000 MHz)", 50.0, 1000.0, "Breitband-Weltraum-Wetter Monitoring"),
-        
-        # === Detaillierte Solar Radio Bänder ===
-        # Index 8 - Metric Waves
-        FrequencyBand("Metric Waves (10-200 MHz)", 10.0, 200.0, "Metrische Wellen - Type II/III Bursts, Slow-Drift"),
-        
-        # Index 9 - Dekametric Range
-        FrequencyBand("Dekametric Range (1-40 MHz)", 1.0, 40.0, "Dekametrische Strahlung (nur RTL-SDR Edge)"),
-        
-        # === High-Frequency Solar Monitoring ===
-        # Index 10
-        FrequencyBand("Centimetric Burst (500-3000 MHz)", 500.0, 3000.0, "Zentimetrische Strahlung - flare-assoziiert"),
-        
-        # Index 11
-        FrequencyBand("Microwave Solar (1000-2000 MHz)", 1000.0, 2000.0, "Mikrowellen-Sonnenbeobachtung (Edge RTL2838)"),
-        
-        # === Ion & Electron Flux Monitoring ===
-        # Index 12
-        FrequencyBand("Solar Electron Events (50-500 MHz)", 50.0, 500.0, "Solare Elektronenereignisse - kosmische Strahlung"),
-        
-        # Index 13
-        FrequencyBand("Proton Events Signature (100-1000 MHz)", 100.0, 1000.0, "Solarer Protonenfluss-Signatur"),
-        
-        # === Flare-Associated Radio Emissions ===
-        # Index 14
-        FrequencyBand("Solar Flare Continuum (100-600 MHz)", 100.0, 600.0, "Kontinuums-Strahlung während Flares"),
-        
-        # Index 15
-        FrequencyBand("Impulsive Flare (50-500 MHz)", 50.0, 500.0, "Impulsive Flare-Emission - Burst-Phase"),
-        
-        # === Composite & Broadband Monitoring ===
-        # Index 16
-        FrequencyBand("Complete Solar Band (10-1000 MHz)", 10.0, 1000.0, "Komplettes Sonnen-Monitoring (RTL-SDR capability)"),
-        
-        # Index 17
-        FrequencyBand("Radio Astronomy Window (50-300 MHz)", 50.0, 300.0, "Klassisches Radio-Astronomie Fenster"),
-        
-        # Index 18
-        FrequencyBand("Cosmic Ray Signature (200-1000 MHz)", 200.0, 1000.0, "Hochenergetische kosmische Strahlung"),
-        
-        # Index 19
-        FrequencyBand("Ionospheric Absorption (30-200 MHz)", 30.0, 200.0, "Ionosphärische Absorption durch Solar Events"),
-        
-        # Index 20
-        FrequencyBand("Aurora Radio (50-150 MHz)", 50.0, 150.0, "Aurorale Radioemission - Nord-/Südlicht-Radio"),
-        
-        # Index 21
-        FrequencyBand("Quiet Sun Noise (100-500 MHz)", 100.0, 500.0, "Ruhige Sonne Referenzmessung (Baseline)"),
     ]
     
     def __init__(self, rtl_device_index: int = 0, sample_rate: int = 2000000, 
