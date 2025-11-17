@@ -63,6 +63,41 @@
             font-size: 1.3em;
         }
 
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .tab-btn {
+            padding: 12px 20px;
+            background: transparent;
+            border: none;
+            border-bottom: 3px solid transparent;
+            cursor: pointer;
+            font-weight: 600;
+            color: #666;
+            transition: all 0.3s ease;
+        }
+
+        .tab-btn:hover {
+            color: #667eea;
+        }
+
+        .tab-btn.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
         .control-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -306,6 +341,12 @@
             <div class="controls">
                 <h2>⚙️ Einstellungen</h2>
 
+                <!-- Tabs -->
+                <div class="tabs">
+                    <button class="tab-btn active" data-tab="overall">📊 Gesamtspektrum</button>
+                    <button class="tab-btn" data-tab="bands">📈 Einzelne Bänder</button>
+                </div>
+
                 <!-- Status -->
                 <div class="status" id="healthStatus">
                     <div class="status-dot healthy"></div>
@@ -321,47 +362,93 @@
                     <button class="preset-btn" data-range="6h">6 Stunden</button>
                 </div>
 
-                <!-- Control Grid -->
-                <div class="control-grid" style="margin-top: 20px;">
-                    <div class="control-group">
-                        <label for="timeRange">Zeitraum</label>
-                        <select id="timeRange">
-                            <option value="1h">1 Stunde</option>
-                            <option value="6h">6 Stunden</option>
-                            <option value="24h" selected>24 Stunden</option>
-                            <option value="7d">7 Tage</option>
-                            <option value="30d">30 Tage</option>
-                        </select>
+                <!-- Tab Content: Overall Spectrum -->
+                <div class="tab-content active" id="overall-tab">
+                    <!-- Control Grid -->
+                    <div class="control-grid" style="margin-top: 20px;">
+                        <div class="control-group">
+                            <label for="timeRange">Zeitraum</label>
+                            <select id="timeRange">
+                                <option value="1h">1 Stunde</option>
+                                <option value="6h">6 Stunden</option>
+                                <option value="24h" selected>24 Stunden</option>
+                                <option value="7d">7 Tage</option>
+                                <option value="30d">30 Tage</option>
+                            </select>
+                        </div>
+
+                        <div class="control-group">
+                            <label for="freqStart">Start-Frequenz (MHz)</label>
+                            <input type="number" id="freqStart" placeholder="z.B. 100" step="0.1">
+                        </div>
+
+                        <div class="control-group">
+                            <label for="freqEnd">End-Frequenz (MHz)</label>
+                            <input type="number" id="freqEnd" placeholder="z.B. 1000" step="0.1">
+                        </div>
+
+                        <div class="control-group">
+                            <label for="colormap">Farbschema</label>
+                            <select id="colormap">
+                                <option value="viridis" selected>Viridis</option>
+                                <option value="plasma">Plasma</option>
+                                <option value="inferno">Inferno</option>
+                                <option value="magma">Magma</option>
+                                <option value="jet">Jet</option>
+                                <option value="hot">Hot</option>
+                                <option value="cool">Cool</option>
+                            </select>
+                        </div>
                     </div>
 
-                    <div class="control-group">
-                        <label for="freqStart">Start-Frequenz (MHz)</label>
-                        <input type="number" id="freqStart" placeholder="z.B. 100" step="0.1">
-                    </div>
-
-                    <div class="control-group">
-                        <label for="freqEnd">End-Frequenz (MHz)</label>
-                        <input type="number" id="freqEnd" placeholder="z.B. 1000" step="0.1">
-                    </div>
-
-                    <div class="control-group">
-                        <label for="colormap">Farbschema</label>
-                        <select id="colormap">
-                            <option value="viridis" selected>Viridis</option>
-                            <option value="plasma">Plasma</option>
-                            <option value="inferno">Inferno</option>
-                            <option value="magma">Magma</option>
-                            <option value="jet">Jet</option>
-                            <option value="hot">Hot</option>
-                            <option value="cool">Cool</option>
-                        </select>
+                    <!-- Buttons -->
+                    <div class="button-group" style="margin-top: 20px;">
+                        <button class="btn btn-primary" id="generateBtn">📊 Heatmap generieren</button>
+                        <button class="btn btn-secondary" id="downloadBtn">⬇️ Download</button>
                     </div>
                 </div>
 
-                <!-- Buttons -->
-                <div class="button-group" style="margin-top: 20px;">
-                    <button class="btn btn-primary" id="generateBtn">📊 Heatmap generieren</button>
-                    <button class="btn btn-secondary" id="downloadBtn">⬇️ Download</button>
+                <!-- Tab Content: Band Spectrum -->
+                <div class="tab-content" id="bands-tab">
+                    <!-- Control Grid for Bands -->
+                    <div class="control-grid" style="margin-top: 20px;">
+                        <div class="control-group">
+                            <label for="bandSelect">Frequenzband</label>
+                            <select id="bandSelect">
+                                <option value="">Wähle ein Band...</option>
+                            </select>
+                        </div>
+
+                        <div class="control-group">
+                            <label for="bandTimeRange">Zeitraum</label>
+                            <select id="bandTimeRange">
+                                <option value="1h">1 Stunde</option>
+                                <option value="6h">6 Stunden</option>
+                                <option value="24h" selected>24 Stunden</option>
+                                <option value="7d">7 Tage</option>
+                                <option value="30d">30 Tage</option>
+                            </select>
+                        </div>
+
+                        <div class="control-group">
+                            <label for="bandColormap">Farbschema</label>
+                            <select id="bandColormap">
+                                <option value="viridis" selected>Viridis</option>
+                                <option value="plasma">Plasma</option>
+                                <option value="inferno">Inferno</option>
+                                <option value="magma">Magma</option>
+                                <option value="jet">Jet</option>
+                                <option value="hot">Hot</option>
+                                <option value="cool">Cool</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Buttons -->
+                    <div class="button-group" style="margin-top: 20px;">
+                        <button class="btn btn-primary" id="generateBandBtn">📊 Band-Heatmap generieren</button>
+                        <button class="btn btn-secondary" id="downloadBandBtn">⬇️ Download</button>
+                    </div>
                 </div>
             </div>
 
@@ -390,6 +477,7 @@
         // Configuration
         const API_BASE = '/api';
         let currentImageData = null;
+        let currentBandImageData = null;
 
         // Elements
         const timeRangeSelect = document.getElementById('timeRange');
@@ -398,15 +486,40 @@
         const colormapSelect = document.getElementById('colormap');
         const generateBtn = document.getElementById('generateBtn');
         const downloadBtn = document.getElementById('downloadBtn');
+
+        // Band elements
+        const bandSelectInput = document.getElementById('bandSelect');
+        const bandTimeRangeSelect = document.getElementById('bandTimeRange');
+        const bandColormapSelect = document.getElementById('bandColormap');
+        const generateBandBtn = document.getElementById('generateBandBtn');
+        const downloadBandBtn = document.getElementById('downloadBandBtn');
+
         const heatmapContainer = document.getElementById('heatmapContainer');
         const errorMessage = document.getElementById('errorMessage');
         const healthStatus = document.getElementById('healthStatus');
         const infoText = document.getElementById('infoText');
         const presetButtons = document.querySelectorAll('.preset-btn');
+        const tabButtons = document.querySelectorAll('.tab-btn');
+        const tabContents = document.querySelectorAll('.tab-content');
 
-        // Event Listeners
+        // Event Listeners - Overall Spectrum
         generateBtn.addEventListener('click', generateHeatmap);
         downloadBtn.addEventListener('click', downloadHeatmap);
+
+        // Event Listeners - Band Spectrum
+        generateBandBtn.addEventListener('click', generateBandHeatmap);
+        downloadBandBtn.addEventListener('click', downloadBandHeatmap);
+
+        // Tab switching
+        tabButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tabName = btn.dataset.tab;
+                tabButtons.forEach(b => b.classList.remove('active'));
+                tabContents.forEach(c => c.classList.remove('active'));
+                btn.classList.add('active');
+                document.getElementById(tabName + '-tab').classList.add('active');
+            });
+        });
 
         presetButtons.forEach(btn => {
             btn.addEventListener('click', () => {
@@ -424,6 +537,7 @@
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             checkHealth();
+            loadBands();
             // Aktualisiere Health-Status alle 30 Sekunden
             setInterval(checkHealth, 30000);
         });
@@ -580,6 +694,104 @@
 
         function clearError() {
             errorMessage.classList.remove('show');
+        }
+
+        /**
+         * Lade verfügbare Frequenzbänder
+         */
+        async function loadBands() {
+            try {
+                const response = await fetch(`${API_BASE}/bands`);
+                const data = await response.json();
+
+                if (data.bands && Array.isArray(data.bands)) {
+                    bandSelectInput.innerHTML = '<option value="">Wähle ein Band...</option>';
+                    data.bands.forEach(band => {
+                        const option = document.createElement('option');
+                        option.value = band.name;
+                        option.textContent = `${band.name} (${band.freq_start}-${band.freq_end} MHz)`;
+                        bandSelectInput.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('Fehler beim Laden der Bänder:', error);
+            }
+        }
+
+        /**
+         * Generiere Band-Heatmap vom Server
+         */
+        async function generateBandHeatmap() {
+            const bandName = bandSelectInput.value;
+
+            if (!bandName) {
+                showError('Bitte wählen Sie ein Frequenzband aus');
+                return;
+            }
+
+            showLoading();
+            clearError();
+
+            try {
+                const params = new URLSearchParams({
+                    band_name: bandName,
+                    time_range: bandTimeRangeSelect.value,
+                    cmap: bandColormapSelect.value,
+                    format: 'json'
+                });
+
+                const response = await fetch(`${API_BASE}/heatmap/band?${params}`);
+                const data = await response.json();
+
+                if (data.status === 'success' && data.data) {
+                    currentBandImageData = data.data;
+                    displayHeatmap(data);
+                    updateBandInfo(data);
+                } else if (data.status === 'no_data') {
+                    showError(`⏳ Keine Daten verfügbar für Band "${bandName}". Bitte später erneut versuchen.\n${data.message}`);
+                    heatmapContainer.innerHTML = '<div class="loading"><p>Warte auf Scan-Ergebnisse...</p></div>';
+                } else if (!response.ok) {
+                    throw new Error(data.message || `HTTP ${response.status}`);
+                } else {
+                    throw new Error(data.message || 'Unbekannter Fehler');
+                }
+
+            } catch (error) {
+                showError(`Fehler beim Generieren der Band-Heatmap: ${error.message}`);
+                console.error(error);
+            }
+        }
+
+        /**
+         * Download Band-Heatmap als PNG
+         */
+        function downloadBandHeatmap() {
+            if (!currentBandImageData) {
+                showError('Keine Band-Heatmap zum Download verfügbar. Generieren Sie zuerst eine Band-Heatmap.');
+                return;
+            }
+
+            try {
+                const bandName = bandSelectInput.value || 'band';
+                const link = document.createElement('a');
+                link.href = `data:image/png;base64,${currentBandImageData}`;
+                link.download = `heatmap-band-${bandName}-${bandTimeRangeSelect.value}-${new Date().toISOString().slice(0, 10)}.png`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } catch (error) {
+                showError(`Fehler beim Download: ${error.message}`);
+            }
+        }
+
+        /**
+         * Aktualisiere Info-Text für Band-Heatmap
+         */
+        function updateBandInfo(data) {
+            let infoStr = `✅ Band-Heatmap generiert für <strong>${data.band_name}</strong> (${data.freq_start}-${data.freq_end} MHz)`;
+            infoStr += ` | Zeitraum: <strong>${data.time_range}</strong>`;
+            infoStr += ` | Farbschema: <strong>${data.cmap}</strong> | Zeit: <strong>${new Date(data.timestamp).toLocaleString('de-DE')}</strong>`;
+            infoText.innerHTML = infoStr;
         }
     </script>
 </body>

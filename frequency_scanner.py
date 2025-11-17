@@ -80,16 +80,13 @@ class RTLSDRScanner:
     
     # Häufig benutzte Frequenzbereiche (typisch für DVB-T / Europa)
     # Hinweis: RTL2838 Tuner kann typischerweise 24-1766 MHz (begrenzt auf ~1500 MHz Uplink)
+    # Optimiert: 5 Hauptbänder mit feiner Auflösung statt 9 Bänder mit grober Auflösung
     COMMON_BANDS = [
-        FrequencyBand("UKW Radio", 87.5, 108, "FM Rundfunk"),
-        FrequencyBand("FM Broadcast", 88, 108, "UKW Rundfunk"),
-        FrequencyBand("VHF I", 46, 68, "Analog TV / Radio"),
-        FrequencyBand("VHF II", 174, 216, "DVB-T / Analog TV"),
-        FrequencyBand("VHF III", 216, 230, "Wenig genutzt"),
-        FrequencyBand("UHF IV", 470, 606, "DVB-T / Analog TV"),
-        FrequencyBand("UHF V", 606, 862, "DVB-T Hauptband"),
-        FrequencyBand("GSM-900", 890, 960, "Mobilfunk (alt)"),
-        FrequencyBand("L-Band (Sat)", 1452, 1492, "Satellit Telefon"),
+        FrequencyBand("FM Radio", 87.5, 108, "UKW Rundfunk / FM Broadcast"),
+        FrequencyBand("VHF", 46, 230, "Analog TV / Radio / DVB-T VHF"),
+        FrequencyBand("UHF", 470, 862, "DVB-T Hauptband (IV+V)"),
+        FrequencyBand("Mobilfunk", 890, 960, "GSM-900 und weitere Mobilfunkdienste"),
+        FrequencyBand("L-Band", 1400, 1500, "Satellit & ISM-Dienste"),
     ]
     
     def __init__(self, rtl_device_index: int = 0, sample_rate: int = 2000000, 
@@ -178,7 +175,7 @@ class RTLSDRScanner:
             import rtlsdr
             
             start_time = datetime.now()
-            num_frequencies = 50  # Scanning-Auflösung
+            num_frequencies = 150  # Feine Auflösung für bessere Frequenzauflösung
             
             frequencies = np.linspace(band.freq_start, band.freq_end, num_frequencies)
             power_values = []

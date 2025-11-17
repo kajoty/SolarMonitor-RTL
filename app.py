@@ -260,6 +260,124 @@ def get_heatmap():
         }), 500
 
 
+@app.route('/api/heatmap/band', methods=['GET'])
+def get_band_heatmap():
+    """
+    REST Endpoint für Band-basierte Heatmap-Daten
+    
+    Query Parameter:
+    - band_name: Name des Frequenzbandes (z.B. 'FM Radio', 'UHF')
+    - time_range: '1h', '6h', '24h', '7d', '30d' (default: '24h')
+    - cmap: Colormap ('viridis', 'jet', 'plasma', etc.) (default: 'viridis')
+    - format: 'json' oder 'png' (default: 'json')
+    
+    Response:
+    - JSON: {
+        "status": "success" | "error",
+        "band_name": "...",
+        "freq_start": ...,
+        "freq_end": ...,
+        "time_range": "...",
+        "data": "base64_encoded_image",
+        "message": "..."
+    }
+    """
+    try:
+        # Parameter auslesen
+        band_name = request.args.get('band_name')
+        time_range = request.args.get('time_range', '24h')
+        cmap = request.args.get('cmap', 'viridis')
+        response_format = request.args.get('format', 'json')
+        
+        if not band_name:
+            return jsonify({
+                'status': 'error',
+                'message': 'Parameter "band_name" erforderlich'
+            }), 400
+        
+        # Ermittle Frequenzbereich für das Band
+        freq_range = None
+        for band in RTLSDRScanner.COMMON_BANDS:
+            if band.name == band_name:
+                freq_range = (band.freq_start, band.freq_end)
+                break
+        
+        if freq_range is None:
+            return jsonify({
+                'status': 'error',
+                'message': f'Band "{band_name}" nicht gefunden'
+            }), 400
+        
+        freq_start, freq_end = freq_range
+        
+        # Validiere Zeit-Parameter
+        valid_ranges = ['1h', '6h', '24h', '7d', '30d']
+        if time_range not in valid_ranges:
+            return jsonify({
+                'status': 'error',
+                'message': f'Ungültiger Zeitraum. Erlaubt: {valid_ranges}'
+            }), 400
+        
+        # Heatmap generieren
+        heatmap_base64 = heatmap_gen.get_heatmap_data(
+            time_range=time_range,
+            freq_start=freq_start,
+            freq_end=freq_end,
+            cmap=cmap
+        )
+        
+        if heatmap_base64 is None:
+            return jsonify({
+                'status': 'no_data',
+                'message': f'Keine Daten für Band "{band_name}" verfügbar',
+                'band_name': band_name,
+                'freq_start': freq_start,
+                'freq_end': freq_end,
+                'time_range': time_range,
+                'timestamp': datetime.now().isoformat()
+            }), 202
+        
+        if response_format == 'json':
+            return jsonify({
+                'status': 'success',
+                'band_name': band_name,
+                'freq_start': freq_start,
+                'freq_end': freq_end,
+                'time_range': time_range,
+                'cmap': cmap,
+                'data': heatmap_base64,
+                'timestamp': datetime.now().isoformat()
+            })
+        else:  # PNG
+            import base64
+            image_data = base64.b64decode(heatmap_base64)
+            buf = io.BytesIO(image_data)
+            buf.seek(0)
+            return send_file(buf, mimetype='image/png')
+    
+    except Exception as e:
+        logger.error(f"Fehler im /api/heatmap/band Endpoint: {e}", exc_info=True)
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+
+@app.route('/api/bands', methods=['GET'])
+def get_bands():
+    """Gibt verfügbare Frequenzbänder zurück"""
+    bands = [
+        {
+            'name': band.name,
+            'freq_start': band.freq_start,
+            'freq_end': band.freq_end,
+            'description': band.description
+        }
+        for band in RTLSDRScanner.COMMON_BANDS
+    ]
+    return jsonify({'bands': bands})
+
+
 @app.route('/api/time-ranges', methods=['GET'])
 def get_time_ranges():
     """Gibt verfügbare Zeiträume zurück"""
