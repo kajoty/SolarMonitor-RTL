@@ -78,15 +78,28 @@ class ScanResult:
 class RTLSDRScanner:
     """Scannt Frequenzbereiche mit RTL-SDR Hardware"""
     
-    # Häufig benutzte Frequenzbereiche (typisch für DVB-T / Europa)
-    # Hinweis: RTL2838 Tuner kann typischerweise 24-1766 MHz (begrenzt auf ~1500 MHz Uplink)
-    # Optimiert: 5 Hauptbänder mit feiner Auflösung statt 9 Bänder mit grober Auflösung
+    # Häufig benutzte Frequenzbereiche optimiert für RTL2838 DVB-T Stick
+    # RTL2838 Tuner Frequenzbereich: 24-1766 MHz (praktisch: 50-1500 MHz)
+    # Index basiert auf .env MONITORED_BANDS Konfiguration
     COMMON_BANDS = [
-        FrequencyBand("FM Radio", 87.5, 108, "UKW Rundfunk / FM Broadcast"),
-        FrequencyBand("VHF", 46, 230, "Analog TV / Radio / DVB-T VHF"),
-        FrequencyBand("UHF", 470, 862, "DVB-T Hauptband (IV+V)"),
-        FrequencyBand("Mobilfunk", 890, 960, "GSM-900 und weitere Mobilfunkdienste"),
-        FrequencyBand("L-Band", 1400, 1500, "Satellit & ISM-Dienste"),
+        # Index 0
+        FrequencyBand("FM Radio", 87.5, 108.0, "UKW Rundfunk / FM Broadcast"),
+        # Index 1
+        FrequencyBand("VHF I", 46.0, 68.0, "Analog TV Band I / DAB"),
+        # Index 2
+        FrequencyBand("VHF II", 87.5, 108.0, "FM Broadcast (VHF II)"),
+        # Index 3
+        FrequencyBand("VHF III", 174.0, 230.0, "Analog TV Band III / DVB-T I-IV"),
+        # Index 4
+        FrequencyBand("UHF IV", 470.0, 606.0, "DVB-T Band IV (Hauptband)"),
+        # Index 5
+        FrequencyBand("UHF V", 606.0, 862.0, "DVB-T Band V (Hauptband)"),
+        # Index 6
+        FrequencyBand("GSM-900", 890.0, 960.0, "Mobilfunk D1/D2 (GSM-900)"),
+        # Index 7
+        FrequencyBand("GSM-1800", 1710.0, 1880.0, "Mobilfunk D3 (GSM-1800)"),
+        # Index 8
+        FrequencyBand("ISM 2.4 GHz", 2400.0, 2500.0, "WLAN / Bluetooth / ISM-Band"),
     ]
     
     def __init__(self, rtl_device_index: int = 0, sample_rate: int = 2000000, 

@@ -670,6 +670,34 @@ def get_scan_recommendations():
 # Automatischer Scan-Scheduler
 # ============================================================================
 
+def get_monitored_bands():
+    """Lese die zu überwachenden Frequenzbänder aus .env"""
+    try:
+        monitored_bands_str = os.getenv('MONITORED_BANDS', '4,5')  # Default: UHF IV+V
+        band_indices = [int(x.strip()) for x in monitored_bands_str.split(',')]
+        
+        # Validiere: maximal 2 Bänder, gültige Indizes (0-8)
+        if len(band_indices) > 2:
+            logger.warning(f"Zu viele Bänder konfiguriert ({len(band_indices)}), nutze nur erste 2")
+            band_indices = band_indices[:2]
+        
+        selected_bands = []
+        for idx in band_indices:
+            if 0 <= idx < len(RTLSDRScanner.COMMON_BANDS):
+                selected_bands.append(RTLSDRScanner.COMMON_BANDS[idx])
+            else:
+                logger.warning(f"Ungültiger Band-Index: {idx}")
+        
+        if not selected_bands:
+            logger.warning("Keine gültigen Bänder konfiguriert, verwende defaults (UHF IV+V)")
+            selected_bands = [RTLSDRScanner.COMMON_BANDS[4], RTLSDRScanner.COMMON_BANDS[5]]
+        
+        logger.info(f"Überwache Frequenzbänder: {', '.join([b.name for b in selected_bands])}")
+        return selected_bands
+    except Exception as e:
+        logger.error(f"Fehler beim Lesen von MONITORED_BANDS: {e}")
+        return [RTLSDRScanner.COMMON_BANDS[4], RTLSDRScanner.COMMON_BANDS[5]]
+
 def run_automatic_scan():
     """Führe automatischen Scan aus (wird von Scheduler aufgerufen)"""
     global scan_in_progress, scan_results, scanner
@@ -688,8 +716,16 @@ def run_automatic_scan():
             logger.warning("Scanner nicht verfügbar - überspringe Scan")
             return
         
-        # Führe Scan durch (schnell-Scan für kontinuierliche Überwachung)
-        results = scanner.find_active_bands()
+        # Hole nur die konfigurierten Bänder
+        monitored_bands = get_monitored_bands()
+        
+        # Scanne nur die überwachten Bänder
+        results = []
+        for band in monitored_bands:
+            result = scanner.scan_band(band)
+            if result:
+                results.append(result)
+                logger.info(f"✅ Scan für {band.name} abgeschlossen")
         
         # Analysiere Ergebnisse
         analysis = FrequencyAnalyzer.recommend_bands(results)
@@ -723,12 +759,14 @@ def init_scheduler():
     try:
         scheduler = BackgroundScheduler()
         
-        # Starte Scan alle 60 Minuten
-        scan_interval = int(os.getenv('SCAN_INTERVAL_MINUTES', 60))
+        # Scan-Intervall in Sekunden (neu: SCAN_INTERVAL_SECONDS statt SCAN_INTERVAL_MINUTES)
+        scan_interval_seconds = int(os.getenv('SCAN_INTERVAL_SECONDS', 180))
+        scan_interval_minutes = scan_interval_seconds / 60.0
+        
         scheduler.add_job(
             run_automatic_scan,
             'interval',
-            minutes=scan_interval,
+            seconds=scan_interval_seconds,
             id='frequency_scan',
             name='Automatischer Frequenzbereich-Scan',
             replace_existing=True,
@@ -736,7 +774,7 @@ def init_scheduler():
         )
         
         scheduler.start()
-        logger.info(f"✅ Scheduler gestartet - Scans alle {scan_interval} Minuten")
+        logger.info(f"✅ Scheduler gestartet - Scans alle {scan_interval_minutes:.1f} Minuten")
         
         # Starte sofort ersten Scan
         logger.info("Starte initialen Scan...")
