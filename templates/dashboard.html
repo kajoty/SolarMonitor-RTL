@@ -570,6 +570,19 @@
         /**
          * Generiere Band-Heatmap vom Server
          */
+        /**
+         * Zeige Heatmap im Container an
+         */
+        function displayHeatmap(data) {
+            const img = document.createElement('img');
+            img.src = `data:image/png;base64,${data.data}`;
+            img.className = 'heatmap-image';
+            img.alt = 'FFT Spektrum Heatmap';
+
+            heatmapContainer.innerHTML = '';
+            heatmapContainer.appendChild(img);
+        }
+
         async function generateBandHeatmap() {
             const bandName = bandSelectInput.value;
 
