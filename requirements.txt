@@ -2,6 +2,7 @@ python-dotenv
 influxdb
 flask
 flask-cors
+apscheduler
 requests
 pyrtlsdr
 numpy

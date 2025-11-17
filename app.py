@@ -5,6 +5,7 @@ Flask REST API für RTL-SDR Frequenz-Monitoring mit FFT Heatmaps
 from flask import Flask, render_template, request, jsonify, send_file
 from flask_cors import CORS
 from dotenv import load_dotenv
+from apscheduler.schedulers.background import BackgroundScheduler
 import os
 import logging
 from datetime import datetime, timedelta
@@ -227,9 +228,11 @@ def get_heatmap():
         
         if heatmap_base64 is None:
             return jsonify({
-                'status': 'error',
-                'message': 'Keine Daten verfügbar oder Fehler bei Heatmap-Generierung'
-            }), 500
+                'status': 'no_data',
+                'message': 'Keine Daten verfügbar. Bitte später erneut versuchen.',
+                'time_range': time_range,
+                'timestamp': datetime.now().isoformat()
+            }), 202
         
         if response_format == 'json':
             return jsonify({
@@ -545,8 +548,93 @@ def get_scan_recommendations():
         }), 500
 
 
+# ============================================================================
+# Automatischer Scan-Scheduler
+# ============================================================================
+
+def run_automatic_scan():
+    """Führe automatischen Scan aus (wird von Scheduler aufgerufen)"""
+    global scan_in_progress, scan_results, scanner
+    
+    # Verhindere parallele Scans
+    with scan_lock:
+        if scan_in_progress:
+            logger.info("Scan bereits in Ausführung - überspringe automatischen Scan")
+            return
+        scan_in_progress = True
+    
+    try:
+        logger.info("🔄 Starte automatischen Frequenzbereich-Scan...")
+        
+        if not scanner:
+            logger.warning("Scanner nicht verfügbar - überspringe Scan")
+            return
+        
+        # Führe Scan durch (schnell-Scan für kontinuierliche Überwachung)
+        results = scanner.find_active_bands()
+        
+        # Analysiere Ergebnisse
+        analysis = FrequencyAnalyzer.recommend_bands(results)
+        
+        # Schreibe Ergebnisse in InfluxDB
+        write_scan_to_influxdb(results)
+        
+        # Speichere im Speicher
+        scan_data = [r.to_dict() for r in results]
+        globals()['scan_results'] = {
+            'scan_data': scan_data,
+            'analysis': analysis,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        logger.info(f"✅ Automatischer Scan abgeschlossen: {len(results)} Bänder gescannt")
+    
+    except Exception as e:
+        logger.error(f"❌ Fehler während automatischem Scan: {e}", exc_info=True)
+        globals()['scan_results'] = {
+            'status': 'error',
+            'message': str(e)
+        }
+    finally:
+        with scan_lock:
+            scan_in_progress = False
+
+
+def init_scheduler():
+    """Initialisiere Background-Scheduler für kontinuierliche Scans"""
+    try:
+        scheduler = BackgroundScheduler()
+        
+        # Starte Scan alle 60 Minuten
+        scan_interval = int(os.getenv('SCAN_INTERVAL_MINUTES', 60))
+        scheduler.add_job(
+            run_automatic_scan,
+            'interval',
+            minutes=scan_interval,
+            id='frequency_scan',
+            name='Automatischer Frequenzbereich-Scan',
+            replace_existing=True,
+            max_instances=1
+        )
+        
+        scheduler.start()
+        logger.info(f"✅ Scheduler gestartet - Scans alle {scan_interval} Minuten")
+        
+        # Starte sofort ersten Scan
+        logger.info("Starte initialen Scan...")
+        run_automatic_scan()
+        
+        return scheduler
+    except Exception as e:
+        logger.error(f"Fehler beim Starten des Schedulers: {e}")
+        return None
+
+
 if __name__ == '__main__':
     init_heatmap_generator()
+    init_scanner()
+    init_influxdb()
+    scheduler = init_scheduler()
     
     # Starte Flask App
     debug_mode = os.getenv('FLASK_DEBUG', 'False') == 'True'

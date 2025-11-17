@@ -212,13 +212,22 @@ class FFTHeatmapGenerator:
         # Normalisiere Daten (entferne NaN-Werte)
         data_clean = np.nan_to_num(spektrum_data, nan=0)
         
-        # Verwende logarithmische Skala wenn Werte positiv sind
+        # Konvertiere negative dB-Werte zu positiv für LogNorm
+        # Power in dB: P_dB = 10*log10(P_linear), negativ bedeutet schwach
+        # Verschiebe um Minimum: P_shifted = P_dB - min(P_dB)
+        if np.any(data_clean != 0):
+            data_min = np.min(data_clean[data_clean != 0])
+            if data_min < 0:
+                data_clean = data_clean - data_min + 1  # Verschiebe, damit alle > 0
+        
+        # Verwende logarithmische Skala
         vmin = np.percentile(data_clean[data_clean > 0], 5) if np.any(data_clean > 0) else 1e-6
         vmax = np.percentile(data_clean[data_clean > 0], 95) if np.any(data_clean > 0) else 1
+        vmin = max(vmin, 1e-6)  # Verhindere log(0)
         
-        # Erstelle Heatmap
+        # Erstelle Heatmap mit linearer statt logarithmischer Skala für dB-Werte
         im = ax.imshow(data_clean.T, aspect='auto', origin='lower',
-                       cmap=cmap, norm=LogNorm(vmin=vmin, vmax=vmax),
+                       cmap=cmap, vmin=vmin, vmax=vmax,
                        extent=[0, len(timestamps), frequencies[0], frequencies[-1]])
         
         # Achsenbeschriftungen

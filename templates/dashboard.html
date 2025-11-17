@@ -491,18 +491,17 @@
                 if (!isNaN(freqEnd)) params.append('freq_end', freqEnd);
 
                 const response = await fetch(`${API_BASE}/heatmap?${params}`);
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.message || `HTTP ${response.status}`);
-                }
-
                 const data = await response.json();
 
                 if (data.status === 'success' && data.data) {
                     currentImageData = data.data;
                     displayHeatmap(data);
                     updateInfo(data);
+                } else if (data.status === 'no_data') {
+                    showError(`⏳ Keine Daten verfügbar. Bitte später erneut versuchen.\n${data.message}`);
+                    heatmapContainer.innerHTML = '<div class="loading"><p>Warte auf Scan-Ergebnisse...</p></div>';
+                } else if (!response.ok) {
+                    throw new Error(data.message || `HTTP ${response.status}`);
                 } else {
                     throw new Error(data.message || 'Unbekannter Fehler');
                 }
