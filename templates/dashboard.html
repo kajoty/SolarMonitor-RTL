@@ -343,8 +343,7 @@
 
                 <!-- Tabs -->
                 <div class="tabs">
-                    <button class="tab-btn active" data-tab="overall">📊 Gesamtspektrum</button>
-                    <button class="tab-btn" data-tab="bands">📈 Einzelne Bänder</button>
+                    <button class="tab-btn active" data-tab="bands">📈 Einzelne Bänder</button>
                 </div>
 
                 <!-- Status -->
@@ -362,54 +361,8 @@
                     <button class="preset-btn" data-range="30d">30 Tage</button>
                 </div>
 
-                <!-- Tab Content: Overall Spectrum -->
-                <div class="tab-content active" id="overall-tab">
-                    <!-- Control Grid -->
-                    <div class="control-grid" style="margin-top: 20px;">
-                        <div class="control-group">
-                            <label for="timeRange">Zeitraum</label>
-                            <select id="timeRange">
-                                <option value="1h">1 Stunde</option>
-                                <option value="6h">6 Stunden</option>
-                                <option value="24h" selected>24 Stunden</option>
-                                <option value="7d">7 Tage</option>
-                                <option value="30d">30 Tage</option>
-                            </select>
-                        </div>
-
-                        <div class="control-group">
-                            <label for="freqStart">Start-Frequenz (MHz)</label>
-                            <input type="number" id="freqStart" placeholder="z.B. 100" step="0.1">
-                        </div>
-
-                        <div class="control-group">
-                            <label for="freqEnd">End-Frequenz (MHz)</label>
-                            <input type="number" id="freqEnd" placeholder="z.B. 1000" step="0.1">
-                        </div>
-
-                        <div class="control-group">
-                            <label for="colormap">Farbschema</label>
-                            <select id="colormap">
-                                <option value="viridis" selected>Viridis</option>
-                                <option value="plasma">Plasma</option>
-                                <option value="inferno">Inferno</option>
-                                <option value="magma">Magma</option>
-                                <option value="jet">Jet</option>
-                                <option value="hot">Hot</option>
-                                <option value="cool">Cool</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <!-- Buttons -->
-                    <div class="button-group" style="margin-top: 20px;">
-                        <button class="btn btn-primary" id="generateBtn">📊 Heatmap generieren</button>
-                        <button class="btn btn-secondary" id="downloadBtn">⬇️ Download</button>
-                    </div>
-                </div>
-
                 <!-- Tab Content: Band Spectrum -->
-                <div class="tab-content" id="bands-tab">
+                <div class="tab-content active" id="bands-tab">
                     <!-- Control Grid for Bands -->
                     <div class="control-grid" style="margin-top: 20px;">
                         <div class="control-group">
@@ -476,18 +429,9 @@
     <script>
         // Configuration
         const API_BASE = '/api';
-        let currentImageData = null;
         let currentBandImageData = null;
 
         // Elements
-        const timeRangeSelect = document.getElementById('timeRange');
-        const freqStartInput = document.getElementById('freqStart');
-        const freqEndInput = document.getElementById('freqEnd');
-        const colormapSelect = document.getElementById('colormap');
-        const generateBtn = document.getElementById('generateBtn');
-        const downloadBtn = document.getElementById('downloadBtn');
-
-        // Band elements
         const bandSelectInput = document.getElementById('bandSelect');
         const bandTimeRangeSelect = document.getElementById('bandTimeRange');
         const bandColormapSelect = document.getElementById('bandColormap');
@@ -501,10 +445,6 @@
         const presetButtons = document.querySelectorAll('.preset-btn');
         const tabButtons = document.querySelectorAll('.tab-btn');
         const tabContents = document.querySelectorAll('.tab-content');
-
-        // Event Listeners - Overall Spectrum
-        generateBtn.addEventListener('click', generateHeatmap);
-        downloadBtn.addEventListener('click', downloadHeatmap);
 
         // Event Listeners - Band Spectrum
         generateBandBtn.addEventListener('click', generateBandHeatmap);
@@ -525,12 +465,12 @@
             btn.addEventListener('click', () => {
                 presetButtons.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
-                timeRangeSelect.value = btn.dataset.range;
-                generateHeatmap();
+                bandTimeRangeSelect.value = btn.dataset.range;
+                generateBandHeatmap();
             });
         });
 
-        timeRangeSelect.addEventListener('change', () => {
+        bandTimeRangeSelect.addEventListener('change', () => {
             updatePresetButtons();
         });
 
@@ -574,7 +514,7 @@
          * Aktualisiere Preset-Buttons basierend auf aktuellem Zeitraum
          */
         function updatePresetButtons() {
-            const currentRange = timeRangeSelect.value;
+            const currentRange = bandTimeRangeSelect.value;
             presetButtons.forEach(btn => {
                 if (btn.dataset.range === currentRange) {
                     btn.classList.add('active');
@@ -582,97 +522,6 @@
                     btn.classList.remove('active');
                 }
             });
-        }
-
-        /**
-         * Generiere Heatmap vom Server
-         */
-        async function generateHeatmap() {
-            showLoading();
-            clearError();
-
-            try {
-                const params = new URLSearchParams({
-                    time_range: timeRangeSelect.value,
-                    cmap: colormapSelect.value,
-                    format: 'json'
-                });
-
-                const freqStart = parseFloat(freqStartInput.value);
-                const freqEnd = parseFloat(freqEndInput.value);
-
-                if (!isNaN(freqStart)) params.append('freq_start', freqStart);
-                if (!isNaN(freqEnd)) params.append('freq_end', freqEnd);
-
-                const response = await fetch(`${API_BASE}/heatmap?${params}`);
-                const data = await response.json();
-
-                if (data.status === 'success' && data.data) {
-                    currentImageData = data.data;
-                    displayHeatmap(data);
-                    updateInfo(data);
-                } else if (data.status === 'no_data') {
-                    showError(`⏳ Keine Daten verfügbar. Bitte später erneut versuchen.\n${data.message}`);
-                    heatmapContainer.innerHTML = '<div class="loading"><p>Warte auf Scan-Ergebnisse...</p></div>';
-                } else if (!response.ok) {
-                    throw new Error(data.message || `HTTP ${response.status}`);
-                } else {
-                    throw new Error(data.message || 'Unbekannter Fehler');
-                }
-
-            } catch (error) {
-                showError(`Fehler beim Generieren der Heatmap: ${error.message}`);
-                console.error(error);
-            }
-        }
-
-        /**
-         * Zeige Heatmap im Container an
-         */
-        function displayHeatmap(data) {
-            const img = document.createElement('img');
-            img.src = `data:image/png;base64,${data.data}`;
-            img.className = 'heatmap-image';
-            img.alt = 'FFT Spektrum Heatmap';
-
-            heatmapContainer.innerHTML = '';
-            heatmapContainer.appendChild(img);
-        }
-
-        /**
-         * Aktualisiere Info-Text
-         */
-        function updateInfo(data) {
-            let infoStr = `✅ Heatmap generiert für Zeitraum: <strong>${data.time_range}</strong>`;
-
-            if (data.freq_start !== null && data.freq_end !== null) {
-                infoStr += ` | Frequenzbereich: <strong>${data.freq_start} - ${data.freq_end} MHz</strong>`;
-            }
-
-            infoStr += ` | Farbschema: <strong>${data.cmap}</strong> | Zeit: <strong>${new Date(data.timestamp).toLocaleString('de-DE')}</strong>`;
-
-            infoText.innerHTML = infoStr;
-        }
-
-        /**
-         * Download Heatmap als PNG
-         */
-        function downloadHeatmap() {
-            if (!currentImageData) {
-                showError('Keine Heatmap zum Download verfügbar. Generieren Sie zuerst eine Heatmap.');
-                return;
-            }
-
-            try {
-                const link = document.createElement('a');
-                link.href = `data:image/png;base64,${currentImageData}`;
-                link.download = `heatmap-${timeRangeSelect.value}-${new Date().toISOString().slice(0, 10)}.png`;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-            } catch (error) {
-                showError(`Fehler beim Download: ${error.message}`);
-            }
         }
 
         /**
