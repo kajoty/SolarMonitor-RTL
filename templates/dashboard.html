@@ -374,9 +374,9 @@
                     <!-- Control Grid for Bands -->
                     <div class="control-grid" style="margin-top: 20px;">
                         <div class="control-group">
-                            <label for="bandSelect">☀️ Solar Radio Band</label>
+                            <label for="bandSelect">☀️ Space Weather Monitoring</label>
                             <select id="bandSelect">
-                                <option value="">Wähle ein Band...</option>
+                                <option value="">Space Weather (50-1000 MHz)</option>
                             </select>
                         </div>
 
@@ -562,29 +562,19 @@
                 const data = await response.json();
 
                 if (data.bands && Array.isArray(data.bands)) {
-                    bandSelectInput.innerHTML = '<option value="">Wähle ein Solar Radio Band...</option>';
+                    // Es gibt nur noch ein Band - auto-select
+                    bandSelectInput.innerHTML = '';
                     
-                    // Gruppiere Bänder für bessere Lesbarkeit
-                    let lastGroup = '';
-                    let optgroup = null;
-                    
-                    data.bands.forEach(band => {
+                    data.bands.forEach((band, index) => {
                         const option = document.createElement('option');
                         option.value = band.name;
-                        
-                        // Kurz-Beschreibung basierend auf Band-Namen
-                        let description = '';
-                        if (band.name.includes('Type I')) description = ' - Elektronische Streuungen';
-                        else if (band.name.includes('Type II/III')) description = ' - Shockwaves & Bursts';
-                        else if (band.name.includes('Cosmic')) description = ' - Galaktischer Hintergrund';
-                        else if (band.name.includes('Flare')) description = ' - Solarflare-Emission';
-                        else if (band.name.includes('Whistler')) description = ' - Magnetosphären-Wellen';
-                        else if (band.name.includes('Aurora')) description = ' - Nord-/Südlicht-Radio';
-                        else if (band.name.includes('Electron')) description = ' - Solare Elektronenereignisse';
-                        else if (band.name.includes('Proton')) description = ' - Solarer Protonenfluss';
-                        
-                        option.textContent = `${band.name}${description} (${band.freq_start}-${band.freq_end} MHz)`;
+                        option.textContent = `${band.name} (${band.freq_start}-${band.freq_end} MHz) - Space Weather`;
                         bandSelectInput.appendChild(option);
+                        
+                        // Auto-select das erste (einzige) Band
+                        if (index === 0) {
+                            option.selected = true;
+                        }
                     });
                 }
             } catch (error) {
