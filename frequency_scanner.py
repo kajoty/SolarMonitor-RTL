@@ -78,71 +78,84 @@ class ScanResult:
 class RTLSDRScanner:
     """Scannt Frequenzbereiche mit RTL-SDR Hardware"""
     
-    # EMI-fokussierte Frequenzbereiche für Störungsüberwachung (statt Rundfunk/TV)
+    # Solar/Cosmic Radio Monitoring - Sonnenaktivität und kosmische Störungen
     # RTL2838 Tuner Frequenzbereich: 24-1766 MHz (praktisch: 50-1500 MHz)
     # Index basiert auf .env MONITORED_BANDS Konfiguration
     COMMON_BANDS = [
-        # === Niederfrequenz & Schaltfrequenzen (50-100 kHz range wird als MHz interpretiert) ===
-        # Index 0 - SMPS & Schaltnetzteile (typisch 50-500 kHz, hier als erste Stufe)
-        FrequencyBand("SMPS Harmonics (50-150 MHz)", 50.0, 150.0, "Schaltnetzteile, Frequenzumrichter, PWM-Regler"),
+        # === Solar Radio Bursts & Cosmic Noise (klassische RadioAstronomy) ===
+        # Index 0 - Type I Solar Radio Storms
+        FrequencyBand("Type I Solar Bursts (50-150 MHz)", 50.0, 150.0, "Solar Type I Storms - Elektronische Streuungen in Sonnencorona"),
         
-        # Index 1 - Motorsteuerung & VFDs
-        FrequencyBand("Motor Drives (100-300 MHz)", 100.0, 300.0, "Frequenzumrichter, Motorsteuerungen, VFD Harmonics"),
+        # Index 1 - Type II & III Solar Radio Bursts
+        FrequencyBand("Type II/III Bursts (50-300 MHz)", 50.0, 300.0, "Type II Shockwave Emissions, Type III Electron Beams vom Solar Flare"),
         
-        # Index 2 - Funkgeräte & Amateurfunk
-        FrequencyBand("Radio & Amateur (30-150 MHz)", 30.0, 150.0, "UKW Funkgeräte, CB-Funk, Amateur Radio PMR"),
+        # Index 2 - Decametric Radiation (DAM)
+        FrequencyBand("Decametric Solar (10-40 MHz)", 10.0, 40.0, "Dekametrische Strahlung - Jupiter & Sonne (theoretisch)"),
         
-        # === UHF Industrial & Störquellen (300-1000 MHz) ===
+        # === Cosmic Noise & Galactic Background ===
         # Index 3
-        FrequencyBand("Industrial UHF (400-600 MHz)", 400.0, 600.0, "Industrielle Funkgeräte, PMR446, Telemetrie"),
+        FrequencyBand("Cosmic Noise (50-200 MHz)", 50.0, 200.0, "Galaktischer Hintergrund + Sonnenrauschen"),
+        
         # Index 4
-        FrequencyBand("WiFi 5G Low (470-600 MHz)", 470.0, 600.0, "5G Sub-6 Band, Mikrowellenherde, Funkgeräte"),
+        FrequencyBand("Galactic Synchrotron (100-500 MHz)", 100.0, 500.0, "Galaxien-Synchrotronstrahlung, Milchstraße"),
         
-        # === Mobilfunk & Zellular ===
+        # === Solar Wind & Magnetosphere Effects ===
         # Index 5
-        FrequencyBand("LTE & 4G (600-900 MHz)", 600.0, 900.0, "Mobilfunk 4G/LTE Bänder, Zellular-Störungen"),
+        FrequencyBand("Magnetospheric Disturbances (300-1000 MHz)", 300.0, 1000.0, "Magnetosphären-Störungen durch Sonnenwind"),
+        
         # Index 6
-        FrequencyBand("Mobilfunk (850-2000 MHz)", 850.0, 2000.0, "GSM, UMTS, 4G/LTE, Handy-Abstrahlungen"),
+        FrequencyBand("Radiation Belt Whistlers (100-300 MHz)", 100.0, 300.0, "Whistler Modus - Magnetosphären-Wellen"),
         
-        # === Hochfrequenz ISM & Wireless ===
+        # === Space Weather Monitoring ===
         # Index 7
-        FrequencyBand("ISM & WLAN (2.4-2.5 GHz)", 2400.0, 2500.0, "2.4 GHz WLAN, Bluetooth, Mikrowellenherde, Zigbee"),
+        FrequencyBand("Space Weather (50-1000 MHz)", 50.0, 1000.0, "Breitband-Weltraum-Wetter Monitoring"),
         
-        # === Detaillierte Nieder-Spektrum ===
-        # Index 8
-        FrequencyBand("Low VHF (30-80 MHz)", 30.0, 80.0, "Funkgeräte, Freifunk, Industriefunk"),
-        # Index 9
-        FrequencyBand("Mid VHF (80-150 MHz)", 80.0, 150.0, "VHF Funkgeräte, Amateurfunk, Flugsicherung"),
+        # === Detaillierte Solar Radio Bänder ===
+        # Index 8 - Metric Waves
+        FrequencyBand("Metric Waves (10-200 MHz)", 10.0, 200.0, "Metrische Wellen - Type II/III Bursts, Slow-Drift"),
         
-        # === Detaillierte Störquellen-Spektren ===
+        # Index 9 - Dekametric Range
+        FrequencyBand("Dekametric Range (1-40 MHz)", 1.0, 40.0, "Dekametrische Strahlung (nur RTL-SDR Edge)"),
+        
+        # === High-Frequency Solar Monitoring ===
         # Index 10
-        FrequencyBand("Motor/Drive Low (100-200 MHz)", 100.0, 200.0, "VFD Grundfrequenzen & erste Harmonics"),
+        FrequencyBand("Centimetric Burst (500-3000 MHz)", 500.0, 3000.0, "Zentimetrische Strahlung - flare-assoziiert"),
+        
         # Index 11
-        FrequencyBand("Motor/Drive High (200-400 MHz)", 200.0, 400.0, "VFD Higher Harmonics & Schalt-EMI"),
+        FrequencyBand("Microwave Solar (1000-2000 MHz)", 1000.0, 2000.0, "Mikrowellen-Sonnenbeobachtung (Edge RTL2838)"),
+        
+        # === Ion & Electron Flux Monitoring ===
         # Index 12
-        FrequencyBand("Industrial Low (400-500 MHz)", 400.0, 500.0, "Industriefunk, Telemetrie, Remote Controls"),
+        FrequencyBand("Solar Electron Events (50-500 MHz)", 50.0, 500.0, "Solare Elektronenereignisse - kosmische Strahlung"),
+        
         # Index 13
-        FrequencyBand("Industrial High (500-700 MHz)", 500.0, 700.0, "Hochfrequenz-Industriefunk, Radare"),
+        FrequencyBand("Proton Events Signature (100-1000 MHz)", 100.0, 1000.0, "Solarer Protonenfluss-Signatur"),
         
-        # === Mikrowellen & Hochfrequenz ===
+        # === Flare-Associated Radio Emissions ===
         # Index 14
-        FrequencyBand("Microwave Low (900-1200 MHz)", 900.0, 1200.0, "Mikrowellenherde, Kurznachrichtenradios, 5G mmWave base"),
-        # Index 15
-        FrequencyBand("Microwave High (1200-1600 MHz)", 1200.0, 1600.0, "Höherfrequente Mikrowellen, Radar, 5G"),
+        FrequencyBand("Solar Flare Continuum (100-600 MHz)", 100.0, 600.0, "Kontinuums-Strahlung während Flares"),
         
-        # === Kombinierte Monitoring-Bänder ===
+        # Index 15
+        FrequencyBand("Impulsive Flare (50-500 MHz)", 50.0, 500.0, "Impulsive Flare-Emission - Burst-Phase"),
+        
+        # === Composite & Broadband Monitoring ===
         # Index 16
-        FrequencyBand("Alle Motorantriebe (100-700 MHz)", 100.0, 700.0, "Gesamtes VFD & Motorsteuerungs-Spektrum"),
+        FrequencyBand("Complete Solar Band (10-1000 MHz)", 10.0, 1000.0, "Komplettes Sonnen-Monitoring (RTL-SDR capability)"),
+        
         # Index 17
-        FrequencyBand("Alle Funkquellen (30-1000 MHz)", 30.0, 1000.0, "Alle Funk-, PMR-, Industrial-Quellen"),
+        FrequencyBand("Radio Astronomy Window (50-300 MHz)", 50.0, 300.0, "Klassisches Radio-Astronomie Fenster"),
+        
         # Index 18
-        FrequencyBand("RF Coupling Band (300-1000 MHz)", 300.0, 1000.0, "Kritischer Bereich für HF-Einkopplung"),
+        FrequencyBand("Cosmic Ray Signature (200-1000 MHz)", 200.0, 1000.0, "Hochenergetische kosmische Strahlung"),
+        
         # Index 19
-        FrequencyBand("Breitband EMI (50-2000 MHz)", 50.0, 2000.0, "Gesamt-Störspektrum für Problembandbreite"),
+        FrequencyBand("Ionospheric Absorption (30-200 MHz)", 30.0, 200.0, "Ionosphärische Absorption durch Solar Events"),
+        
         # Index 20
-        FrequencyBand("High Interference Zone (400-600 MHz)", 400.0, 600.0, "Höchste Stördichte-Zone (PMR, WiFi, Radar)"),
+        FrequencyBand("Aurora Radio (50-150 MHz)", 50.0, 150.0, "Aurorale Radioemission - Nord-/Südlicht-Radio"),
+        
         # Index 21
-        FrequencyBand("Solar Inverter Harmonics (30-500 MHz)", 30.0, 500.0, "Typische PV-Wechselrichter & SMPS Harmonics"),
+        FrequencyBand("Quiet Sun Noise (100-500 MHz)", 100.0, 500.0, "Ruhige Sonne Referenzmessung (Baseline)"),
     ]
     
     def __init__(self, rtl_device_index: int = 0, sample_rate: int = 2000000, 
