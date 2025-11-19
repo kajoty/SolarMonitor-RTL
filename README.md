@@ -1,203 +1,110 @@
-# SolarMonitor-RTL - RTL-SDR Frequency Monitoring System
+# SolarMonitor-RTL
 
-RTL-SDR frequency monitoring system for Raspberry Pi utilizing SQLite for time-series data storage and REST API for data access and visualization.
+RTL-SDR frequency monitoring system for Raspberry Pi. Captures radio frequency spectrum in the 20-80 MHz band using an RTL2838 DVB-T USB dongle, stores data in SQLite, and provides visualization via REST API and web interface.
 
-## Overview
+## System Overview
 
-SolarMonitor-RTL is a complete system for continuous radio frequency spectrum monitoring using an RTL2838 DVB-T USB dongle. The system captures spectrum data in the solar radio band (20-80 MHz), stores measurements in SQLite, and provides comprehensive visualization through REST APIs and web dashboards.
+Continuous spectrum monitoring using RTL-SDR hardware on Raspberry Pi 4B. Frequency range: 20-80 MHz (solar radio band). Data stored in local SQLite database with REST API access. Web dashboards for visualization and analysis.
 
-**System Status:** Operational - Core components functional and deployed  
-**Deployment Method:** Systemd services with automatic restart on failure  
-**Current Data:** 42,500+ spectrum measurements across 85+ scans
+## Hardware
 
-## Hardware Requirements
+**Required:**
+- Raspberry Pi 4B (2GB+ RAM)
+- RTL2838 DVB-T USB Dongle (Realtek 0bda:2838)
+- USB 2.0 port with extension cable (USB 3.0 causes interference)
 
-### Minimum Setup
-- Raspberry Pi 4B (2GB+ RAM) with Raspbian or Debian-based OS
-- RTL2838 DVB-T USB Dongle (Realtek Semiconductor)
-  - USB Identifiers: `0bda:2838`
-  - Tuner: Rafael Micro R828D
-  - Frequency Range: 24-1766 MHz (optimized for 470-862 MHz DVB-T)
-  - Sample Rate: 2 MSps
+**Specifications:**
+- Tuner: Rafael Micro R828D
+- Sample rate: 2 MSps
+- Frequency range: 24-1766 MHz
+- Frequency resolution: 500 points per scan = 0.12 MHz per point
+- Scan interval: 60 seconds
 
 ## Installation
 
-### 1. Repository Setup
+Clone repository and set up Python environment:
 
 ```bash
-cd /home/pi/Projekte/solarmonitor
 git clone https://github.com/kajoty/SolarMonitor-RTL.git
 cd SolarMonitor-RTL
-
 python3 -m venv venv
 source venv/bin/activate
-
 pip install -r requirements.txt
 ```
 
-### 2. Configuration
-
-Create `.env` file from template:
+Configure `.env`:
 
 ```bash
 cp .env.example .env
-nano .env
 ```
 
-Required configuration variables:
-
-```env
-RTL_DEVICE_INDEX=0
-RTL_SAMPLE_RATE=2000000
-RTL_GAIN=auto
-
-SQLITE_DATABASE=spectrum.db
-SCAN_INTERVAL_MINUTES=1
-```
-
-### 3. Service Installation
+Install systemd services:
 
 ```bash
 sudo bash install_service.sh
 ```
 
-This installs two systemd services:
-- `solarmonitor-sqlite.service` - SQLite REST API server (port 8002)
-- `solarmonitor-app.service` - Flask application server (port 5000)
+This creates two services running automatically on boot:
+- `solarmonitor-sqlite.service` (port 8002)
+- `solarmonitor-app.service` (port 5000)
 
-Both services are configured for automatic startup on system boot and automatic restart on failure.
+## Usage
 
-### 4. Service Management
-
+**Check status:**
 ```bash
-# Check service status
 sudo systemctl status solarmonitor-sqlite.service
 sudo systemctl status solarmonitor-app.service
-
-# Restart services
-sudo systemctl restart solarmonitor-app.service
-sudo systemctl restart solarmonitor-sqlite.service
-
-# View service logs
-sudo journalctl -u solarmonitor-app.service -f
-sudo journalctl -u solarmonitor-sqlite.service -f
-
-# Stop services
-sudo systemctl stop solarmonitor-app.service
-sudo systemctl stop solarmonitor-sqlite.service
-
-# Disable auto-start
-sudo systemctl disable solarmonitor-app.service
-sudo systemctl disable solarmonitor-sqlite.service
 ```
 
-## Quick Start (Manual Execution)
+**View logs:**
+```bash
+sudo journalctl -u solarmonitor-app.service -f
+```
 
-### Development Mode
-
+**Manual start (development):**
 ```bash
 source venv/bin/activate
 python3 app.py
 ```
 
-Output indicates successful initialization:
-```
-INFO:__main__:SQLite database connected
-INFO:__main__:RTL-SDR scanner initialized
-INFO:__main__:Scanner running on background thread
- * Running on http://0.0.0.0:5000
-```
+**Web interfaces:**
+- Heatmap Dashboard: `http://localhost:5000/`
+- Discovery Dashboard: `http://localhost:5000/discovery`
 
-### Web Interfaces
+## Architecture
 
-Access via web browser:
+RTL-SDR dongle → FFT analysis → SQLite database → REST API (port 8002) → Flask app (port 5000) → Web interface
 
-1. **Heatmap Dashboard** - `http://localhost:5000/`
-   - Time-frequency visualization of spectrum data
-   - Time range selection: 1h, 6h, 24h, 7d, 30d, custom intervals
-   - Colormap options: viridis, plasma, jet, hot, magma, and 12+ others
-   - PNG export functionality
+**Components:**
+- `frequency_scanner.py` - RTL-SDR hardware interface, FFT computation
+- `sqlite_server.py` - SQLite REST API wrapper
+- `heatmap_generator.py` - Matplotlib visualization
+- `app.py` - Flask REST API server
+- `spectrum_analyzer.py` - Signal processing and metrics
+- `templates/` - Web UI (dashboard.html, discovery.html)
 
-2. **Discovery Dashboard** - `http://localhost:5000/discovery`
-   - Frequency band scanning and analysis
-   - Signal-to-noise ratio and activity metrics per band
-   - Band recommendations based on signal strength
+**Analysis tools:**
+- `analyze_signal_quality.py` - Signal quality metrics from stored data
+- `optimize_gain.py` - Automated gain value testing
+- `save_daily_heatmaps.py` - Daily heatmap archival
 
-## System Architecture
+## Configuration
 
-### Data Flow
-
-```
-RTL-SDR Hardware
-      |
-      v
-frequency_scanner.py (capture + FFT analysis)
-      |
-      v
-spectrum_analyzer.py (signal processing)
-      |
-      v
-SQLite Database (spectrum.db)
-      |
-      +---> sqlite_server.py (REST API, port 8002)
-      |
-      v
-Flask Application (port 5000)
-      |
-      +---> heatmap_generator.py (visualization)
-      |
-      v
-Web Browsers / Clients
-```
-
-### Core Components
-
-| Component | File | Function |
-|-----------|------|----------|
-| Flask Server | `app.py` | REST API endpoints, scheduling, health monitoring |
-| RTL-SDR Interface | `frequency_scanner.py` | Hardware control, FFT computation, scan execution |
-| Data Storage | `sqlite_server.py` | SQLite REST wrapper, query handler, data persistence |
-| Heatmap Visualization | `heatmap_generator.py` | FFT array generation, matplotlib rendering |
-| Spectrum Analysis | `spectrum_analyzer.py` | Signal metrics computation, visualization generation |
-| Web Dashboards | `templates/` | HTML/JavaScript client interfaces |
-
-### Analysis Tools
-
-| Tool | File | Purpose |
-|------|------|---------|
-| Signal Quality Analysis | `analyze_signal_quality.py` | Non-intrusive analysis of stored spectrum data |
-| Gain Optimization | `optimize_gain.py` | Automated testing of gain values for optimal SNR |
-| Daily Heatmap Archive | `save_daily_heatmaps.py` | Automatic daily heatmap archival with multiple colormaps |
-
-## Configuration Details
-
-### RTL-SDR Parameters
-
-**Frequency Bands Monitored:**
-
-| Band Name | Range | Resolution | Measurements per Scan |
-|-----------|-------|------------|-----------------------|
-| Solar Radio | 20-80 MHz | 0.12 MHz | 500 frequencies |
-
-**Gain Settings:**
+`.env` file contains all settings. Key parameters:
 
 ```env
-RTL_GAIN=auto      # Automatic (default, recommended)
-RTL_GAIN=25.4      # Moderate amplification
-RTL_GAIN=42.1      # High amplification (current setting)
-RTL_GAIN=49.6      # Maximum (high noise floor)
+RTL_DEVICE_INDEX=0              # USB device index
+RTL_SAMPLE_RATE=2000000         # Samples per second
+RTL_GAIN=auto                   # Gain setting (auto recommended)
+SQLITE_DATABASE=spectrum.db     # Database file
+SCAN_INTERVAL_MINUTES=1         # Scan frequency
 ```
 
-### Scan Parameters
+Gain values: 0-49.6 dB or 'auto'. Recommended: 25.4 or 42.1 dB.
 
-```env
-SCAN_INTERVAL_MINUTES=1     # Frequency of measurement scans
-SAMPLE_RATE=2000000         # Digital samples per second
-```
+## API
 
-## REST API Specification
-
-### Heatmap Endpoints
+**Heatmap endpoint:**
 
 ```
 GET /api/heatmap
@@ -235,20 +142,113 @@ curl 'http://localhost:5000/api/health'
 ### SQLite REST API (Port 8002)
 
 ```
-GET /api/read
-  Parameters:
-    time_range: relative time range ('1h', '6h', '24h', '7d', '30d')
-    OR
-    start_time: ISO-8601 timestamp
-    end_time: ISO-8601 timestamp
-  
-  Returns: {"timestamps": [...], "frequencies": [...], "data": [[...]]}
+```
 
-GET /api/stats
-  Returns: {"total_points": N, "total_scans": M, "latest_timestamp": "..."}
+**SQLite REST API (port 8002):**
 
-GET /health
-  Returns: {"status": "ok"} or {"error": "..."}
+```bash
+curl 'http://localhost:8002/api/stats'
+curl 'http://localhost:8002/api/read?time_range=24h'
+curl 'http://localhost:8002/health'
+```
+
+## Database
+
+SQLite file: `spectrum.db`
+
+Table `frequency_spectrum`:
+- timestamp (ISO-8601 UTC)
+- frequency (MHz)
+- power (dB)
+- band_name
+
+Typical storage: ~500 KB per day at 60-second scan interval.
+
+## Tools
+
+**Signal Quality Analysis:**
+```bash
+python3 analyze_signal_quality.py --time-range 24h
+```
+Outputs SNR, dynamic range, activity metrics from stored data.
+
+**Gain Optimization:**
+```bash
+sudo python3 optimize_gain.py --duration 5
+```
+Tests gain values automatically. Requires sudo.
+
+**Daily Heatmap Archive:**
+```bash
+python3 save_daily_heatmaps.py --date today --cmap viridis
+```
+Archives heatmaps with multiple colormaps.
+
+## Troubleshooting
+
+**RTL-SDR not detected:**
+```bash
+lsusb | grep -i realtek
+# Should show: ID 0bda:2838
+```
+
+**USB interference:**
+Use USB 2.0 port with extension cable. USB 3.0 causes RF noise in this frequency range.
+
+**Service fails to start:**
+```bash
+sudo journalctl -u solarmonitor-app.service -n 50
+```
+
+**RTL-SDR device busy:**
+```bash
+ps aux | grep python3
+sudo systemctl restart solarmonitor-app.service
+```
+
+## Project Files
+
+Core:
+- `app.py` - Flask REST API server
+- `sqlite_server.py` - SQLite REST wrapper
+- `frequency_scanner.py` - RTL-SDR interface
+- `heatmap_generator.py` - Visualization
+- `spectrum_analyzer.py` - Signal processing
+
+Tools:
+- `analyze_signal_quality.py` - Data analysis
+- `optimize_gain.py` - Gain testing
+- `save_daily_heatmaps.py` - Daily archive
+
+Web:
+- `templates/dashboard.html` - Heatmap interface
+- `templates/discovery.html` - Discovery interface
+
+Services:
+- `solarmonitor-sqlite.service`
+- `solarmonitor-app.service`
+- `install_service.sh`
+
+Configuration:
+- `.env.example` - Configuration template
+- `requirements.txt` - Python dependencies
+- `.gitignore` - Git exclusion rules
+
+## Performance
+
+Current system (Raspberry Pi 4B):
+- CPU: 3-5% during scanning
+- Memory: 120-250 MB
+- Scan duration: 25-30 seconds
+- Scan interval: 60 seconds
+- API response: <100 ms
+- Database growth: ~500 KB/day
+
+## License
+
+MIT
+
+Version: 1.0 | Updated: November 2025 | Status: Production
 ```
 
 ## Database Schema

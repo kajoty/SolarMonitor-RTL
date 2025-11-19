@@ -1,6 +1,7 @@
 """
-SQLite Datenbank Backend für SolarMonitor-RTL
-Ersetzt InfluxDB mit lokaler SQLite für bessere Zuverlässigkeit auf Raspberry Pi
+SQLite database wrapper (deprecated - kept for reference only).
+The system now uses direct REST API calls to sqlite_server.py.
+This module is not actively used.
 """
 
 import sqlite3

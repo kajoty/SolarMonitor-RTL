@@ -1,6 +1,6 @@
 """
-Flask REST API für RTL-SDR Frequenz-Monitoring mit FFT Heatmaps
-Nutzt SQLite statt InfluxDB für bessere Zuverlässigkeit auf Raspberry Pi
+Flask REST API for RTL-SDR frequency monitoring with FFT heatmaps.
+Data storage: SQLite via REST API.
 """
 
 from flask import Flask, render_template, request, jsonify, send_file
@@ -15,10 +15,7 @@ import threading
 import requests
 import numpy as np
 
-# Importiere SQLite DB Modul
-from db_sqlite import SQLiteDB
-
-# Oder nutze REST API zu lokalem Server
+# SQLite REST API server
 SQLITE_REST_URL = "http://localhost:8002"
 
 # Lade Umgebungsvariablen
@@ -44,30 +41,8 @@ scan_results = None
 scan_in_progress = False
 scan_lock = threading.Lock()
 
-# SQLite DB Client
-sqlite_db = None
 
 
-def init_database():
-    """Initialisiere SQLite Datenbank"""
-    global sqlite_db
-    try:
-        sqlite_db = SQLiteDB(
-            host=os.getenv('SQLITE_HOST', '192.168.178.100'),
-            port=int(os.getenv('SQLITE_PORT', 8001))
-        )
-        logger.info(f"✅ SQLite Datenbank initialisiert")
-        return True
-    except Exception as e:
-        logger.error(f"SQLite Initialisierung fehlgeschlagen: {e}")
-        sqlite_db = None
-        return False
-
-
-# Legacy-Funktion für Kompatibilität
-def init_influxdb():
-    """Legacy: Nutze jetzt SQLite statt InfluxDB"""
-    return init_database()
 
 
 def write_scan_to_sqlite(results):
@@ -124,9 +99,6 @@ def write_scan_to_sqlite(results):
         return False
 
 
-def write_scan_to_influxdb(results):
-    """DEPRECATED: Behalten für Rückwärtskompatibilität, leitet zu SQLite weiter"""
-    return write_scan_to_sqlite(results)
 def init_heatmap_generator():
     """Initialisiert den Heatmap-Generator beim Start"""
     global heatmap_gen
@@ -620,8 +592,8 @@ def start_frequency_scan():
             # Analysiere Ergebnisse
             analysis = FrequencyAnalyzer.recommend_bands(results)
             
-            # Schreibe Ergebnisse in InfluxDB
-            write_scan_to_influxdb(results)
+            # Schreibe Ergebnisse in SQLite via REST API
+            write_scan_to_sqlite(results)
             
             # Konvertiere Results zu dictionaries und speichere GLOBAL
             scan_data = [r.to_dict() for r in results]
@@ -848,8 +820,8 @@ def run_automatic_scan():
         # Analysiere Ergebnisse
         analysis = FrequencyAnalyzer.recommend_bands(results)
         
-        # Schreibe Ergebnisse in InfluxDB
-        write_scan_to_influxdb(results)
+        # Schreibe Ergebnisse in SQLite via REST API
+        write_scan_to_sqlite(results)
         
         # Speichere im Speicher
         scan_data = [r.to_dict() for r in results]
@@ -907,7 +879,6 @@ def init_scheduler():
 if __name__ == '__main__':
     init_heatmap_generator()
     init_scanner()
-    init_influxdb()
     scheduler = init_scheduler()
     
     # Starte Flask App
