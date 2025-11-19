@@ -77,16 +77,10 @@ RTL-SDR dongle → FFT analysis → SQLite database → REST API (port 8002) →
 
 **Components:**
 - `frequency_scanner.py` - RTL-SDR hardware interface, FFT computation
-- `sqlite_server.py` - SQLite REST API wrapper
+- `sqlite_server.py` - SQLite REST API
 - `heatmap_generator.py` - Matplotlib visualization
 - `app.py` - Flask REST API server
-- `spectrum_analyzer.py` - Signal processing and metrics
-- `templates/` - Web UI (dashboard.html, discovery.html)
-
-**Analysis tools:**
-- `analyze_signal_quality.py` - Signal quality metrics from stored data
-- `optimize_gain.py` - Automated gain value testing
-- `save_daily_heatmaps.py` - Daily heatmap archival
+- `templates/` - Web UI (dashboard.html)
 
 ## Configuration
 
@@ -164,26 +158,6 @@ Table `frequency_spectrum`:
 
 Typical storage: ~500 KB per day at 60-second scan interval.
 
-## Tools
-
-**Signal Quality Analysis:**
-```bash
-python3 analyze_signal_quality.py --time-range 24h
-```
-Outputs SNR, dynamic range, activity metrics from stored data.
-
-**Gain Optimization:**
-```bash
-sudo python3 optimize_gain.py --duration 5
-```
-Tests gain values automatically. Requires sudo.
-
-**Daily Heatmap Archive:**
-```bash
-python3 save_daily_heatmaps.py --date today --cmap viridis
-```
-Archives heatmaps with multiple colormaps.
-
 ## Troubleshooting
 
 **RTL-SDR not detected:**
@@ -213,16 +187,9 @@ Core:
 - `sqlite_server.py` - SQLite REST wrapper
 - `frequency_scanner.py` - RTL-SDR interface
 - `heatmap_generator.py` - Visualization
-- `spectrum_analyzer.py` - Signal processing
-
-Tools:
-- `analyze_signal_quality.py` - Data analysis
-- `optimize_gain.py` - Gain testing
-- `save_daily_heatmaps.py` - Daily archive
 
 Web:
 - `templates/dashboard.html` - Heatmap interface
-- `templates/discovery.html` - Discovery interface
 
 Services:
 - `solarmonitor-sqlite.service`
