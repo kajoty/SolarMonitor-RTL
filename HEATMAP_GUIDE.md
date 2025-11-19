@@ -2,7 +2,7 @@
 
 ## Übersicht
 
-Der FFT Heatmap Generator ist eine Komponente des SolarMonitor-RTL Systems, die Frequenzspektrum-Daten aus InfluxDB abruft und sie als interaktive Wärmekarten (Heatmaps) visualisiert.
+Der FFT Heatmap Generator ist eine Komponente des SolarMonitor-RTL Systems, die Frequenzspektrum-Daten aus SQLite abruft und sie als interaktive Wärmekarten (Heatmaps) visualisiert.
 
 **Features:**
 - 📊 FFT Spektrum Heatmaps mit Zeit-Frequenz-Auflösung
@@ -20,21 +20,14 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. InfluxDB konfigurieren
+### 2. SQLite Datenbank
 
-Die `.env` Datei muss die folgenden Variablen enthalten:
-```env
-INFLUXDB_HOST=192.168.178.100
-INFLUXDB_PORT=8086
-INFLUXDB_USER=admin
-INFLUXDB_PASSWORD=admin
-INFLUXDB_DATABASE=rtl_monitor
-```
+Die SQLite-Datenbank wird automatisch initialisiert und unter `./spectrum.db` gespeichert. Keine manuelle Konfiguration nötig.
 
-Die InfluxDB Datenbank muss eine Messung namens `frequency_spectrum` mit folgenden Feldern enthalten:
-- **Tags:** `frequency` (in MHz)
-- **Fields:** `power` (in dB oder linear)
-- **Timestamp:** RFC 3339 Format
+Die Datenbank enthält eine Tabelle `frequency_spectrum` mit folgenden Feldern:
+- **timestamp** - Unix-Timestamp (int)
+- **frequency_mhz** - Frequenz in MHz (float)
+- **power_db** - Leistung in dB (float)
 
 ### 3. Flask App starten
 ```bash
@@ -89,13 +82,13 @@ curl "http://localhost:5000/api/heatmap?format=json&cmap=hot"
 
 ### GET `/api/health`
 
-Prüft die Verbindung zu InfluxDB.
+Prüft die Verbindung zu SQLite und den Datenbankstatus.
 
 **Response:**
 ```json
 {
   "status": "healthy",
-  "influxdb_connected": true,
+  "sqlite_connected": true,
   "timestamp": "2025-11-16T12:34:56.789012"
 }
 ```
@@ -128,7 +121,7 @@ Gibt verfügbare Colormaps zurück.
 - **Zeitraum-Auswahl:** Quick-Buttons und Dropdown für 1h, 6h, 24h, 7d, 30d
 - **Frequenzfilter:** Optionale Eingaben für Start- und End-Frequenz
 - **Colormap-Auswahl:** 17+ verschiedene Farbschemas
-- **Live Health-Check:** Status der InfluxDB-Verbindung
+- **Live Health-Check:** Status der SQLite-Datenbankverbindung
 - **Download:** PNG Export der Heatmap
 - **Responsive Design:** Funktioniert auf Desktop und Tablets
 
@@ -205,49 +198,47 @@ curl "http://localhost:5000/api/heatmap?format=json&cmap=plasma" \
   | jq '.data' > heatmap_base64.txt
 ```
 
-## InfluxDB Schema
+## SQLite Schema
 
-### Erforderliche Messungen
+### Tabellenstruktur
 
+Die Tabelle `frequency_spectrum` enthält:
+
+```sql
+CREATE TABLE frequency_spectrum (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp INTEGER NOT NULL,
+    frequency_mhz REAL NOT NULL,
+    power_db REAL NOT NULL
+);
 ```
-Measurement: frequency_spectrum
-Tags:
-  - frequency: Frequenz in MHz (z.B. "100.5", "800.0")
-Fields:
-  - power: Leistung in dB oder Linear (Float)
-Timestamp: RFC 3339 (z.B. "2025-11-16T12:00:00Z")
-```
 
-### Beispiel Insert (InfluxDB Line Protocol)
+### Beispiel Query
 
-```
-frequency_spectrum,frequency=100.5 power=45.2 1731761400000000000
-frequency_spectrum,frequency=101.0 power=42.8 1731761400000000000
-frequency_spectrum,frequency=200.5 power=38.5 1731761400000000000
+```sql
+SELECT * FROM frequency_spectrum 
+WHERE timestamp > strftime('%s', 'now') - 86400 
+ORDER BY timestamp DESC;
 ```
 
 ### Daten schreiben (Python)
 
 ```python
-from influxdb import InfluxDBClient
+import sqlite3
 
-client = InfluxDBClient(host='localhost', port=8086)
-client.switch_db('rtl_monitor')
+conn = sqlite3.connect('./spectrum.db')
+cursor = conn.cursor()
 
 # Beispiel: Schreibe Frequenzspektrum-Daten
-json_body = [
-    {
-        "measurement": "frequency_spectrum",
-        "tags": {
-            "frequency": "100.5"
-        },
-        "fields": {
-            "power": 45.2
-        }
-    }
-]
+timestamp = int(time.time())
+frequency_mhz = 100.5
+power_db = 45.2
 
-client.write_points(json_body)
+cursor.execute(
+    'INSERT INTO frequency_spectrum (timestamp, frequency_mhz, power_db) VALUES (?, ?, ?)',
+    (timestamp, frequency_mhz, power_db)
+)
+conn.commit()
 ```
 
 ## Fehlerbehandlung
@@ -256,8 +247,8 @@ client.write_points(json_body)
 
 | Fehler | Ursache | Lösung |
 |--------|--------|--------|
-| InfluxDB ist nicht verbunden | Falsche Konfiguration oder Service offline | Prüfen Sie `.env` und InfluxDB Status |
-| Keine Daten verfügbar | Keine Daten in InfluxDB für den Zeitraum | Schreiben Sie Testdaten in die Datenbank |
+| Keine Datenbankverbindung | SQLite nicht erreichbar | Prüfen Sie die Dateiberechtigungen für `spectrum.db` |
+| Keine Daten verfügbar | Keine Daten in SQLite für den Zeitraum | Überprüfen Sie, ob der RTL-SDR Scanner aktiv ist |
 | HTTP 400 - freq_start >= freq_end | Ungültiger Frequenzbereich | Start-Frequenz muss kleiner sein |
 | HTTP 500 - Server Error | Interner Fehler im Generator | Prüfen Sie Logs auf Fehlermeldungen |
 
@@ -274,7 +265,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 - **Große Zeiträume:** Verwenden Sie Frequenzfilter um Datenmengen zu reduzieren
 - **Raspberry Pi:** Aktivieren Sie Caching in Flask für wiederholte Requests
-- **InfluxDB:** Erstellen Sie Indizes auf `frequency` Tag für schnellere Abfragen
+- **SQLite:** Erstellen Sie Indizes auf `frequency_mhz` und `timestamp` für schnellere Abfragen
 
 ## Erweiterungen
 
