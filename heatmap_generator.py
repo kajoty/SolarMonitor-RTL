@@ -321,6 +321,10 @@ class FFTHeatmapGenerator:
         ax.set_yticks(freq_ticks)
         ax.set_yticklabels([f'{f:.1f}' for f in freq_ticks], fontsize=9)
         
+        # Colorbar (Legende für Power-Werte)
+        cbar = plt.colorbar(im, ax=ax, orientation='vertical', pad=0.02)
+        cbar.set_label('Power (dB)', rotation=270, labelpad=20, fontsize=10)
+        
         plt.tight_layout()
         
         # Speichere als PNG in BytesIO
