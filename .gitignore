@@ -12,3 +12,7 @@ spectrum.db
 heatmaps/
 *.sqlite
 *.db
+
+# RTL-Power parallel system data
+rtl_power_data/
+*.csv
