@@ -122,14 +122,12 @@ def init_scanner():
 
 @app.before_request
 def before_request():
-    """Initialisiere Generatoren beim ersten Request"""
-    global heatmap_gen, scanner, sqlite_db
+    """Initialize generators on first request"""
+    global heatmap_gen, scanner
     if heatmap_gen is None:
         init_heatmap_generator()
     if scanner is None:
         init_scanner()
-    if sqlite_db is None:
-        init_database()
 
 
 @app.route('/', methods=['GET'])
