@@ -253,6 +253,11 @@ class FFTHeatmapGenerator:
             vmin = -100
             vmax = -50
         
+        # Kehre Datenreihenfolge um, damit Zeit von alt (links) zu neu (rechts) läuft
+        # Timestamps kommen reversed (neueste zuerst), also flippen
+        data_clean = np.flipud(data_clean)  # Flip rows (Zeit)
+        timestamps = timestamps[::-1]  # Reverse timestamps list
+        
         # Transponiere data: Von (Zeit x Frequenz) zu (Frequenz x Zeit)
         # Das ermöglicht: X-Achse = Zeit (links→rechts), Y-Achse = Frequenz (unten→oben)
         data_transposed = data_clean.T  # Shape wird zu (N_frequencies, N_timestamps)
@@ -265,7 +270,7 @@ class FFTHeatmapGenerator:
         
         # Erstelle Heatmap mit transponierter Daten
         # Data shape: (N_frequencies, N_timestamps)
-        # X-Achse = Zeit (0 bis N_timestamps)
+        # X-Achse = Zeit (0 bis N_timestamps, alt→neu von links→rechts)
         # Y-Achse = Frequenz (freq_min bis freq_max)
         im = ax.imshow(data_transposed, aspect='auto', origin='lower',
                        cmap=cmap, vmin=vmin, vmax=vmax,
@@ -297,8 +302,8 @@ class FFTHeatmapGenerator:
             formatted_times = []
             for i in tick_indices:
                 if i < len(timestamps):
-                    # Timestamps sind reversed (neueste zuerst), also Index umkehren
-                    time_str = timestamps[len(timestamps) - 1 - i]
+                    # Timestamps sind jetzt in korrekter Reihenfolge (alt→neu)
+                    time_str = timestamps[i]
                     try:
                         dt = datetime.fromisoformat(time_str.replace('Z', '+00:00'))
                         # Formatiere Zeit basierend auf Zeitspanne
