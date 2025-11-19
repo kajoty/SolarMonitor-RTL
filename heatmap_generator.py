@@ -253,42 +253,37 @@ class FFTHeatmapGenerator:
             vmin = -100
             vmax = -50
         
+        # Transponiere data: Von (Zeit x Frequenz) zu (Frequenz x Zeit)
+        # Das ermöglicht: X-Achse = Zeit (links→rechts), Y-Achse = Frequenz (unten→oben)
+        data_transposed = data_clean.T  # Shape wird zu (N_frequencies, N_timestamps)
+        
         # Frequenz-Grenzen
-        y_min = freq_min if freq_min is not None else frequencies[0]
-        y_max = freq_max if freq_max is not None else frequencies[-1]
+        freq_min_val = freq_min if freq_min is not None else frequencies[0]
+        freq_max_val = freq_max if freq_max is not None else frequencies[-1]
+        time_min_idx = 0
+        time_max_idx = len(timestamps) - 1
         
-        # Erstelle Heatmap
-        # WICHTIG: Data shape ist (N_timestamps, N_frequencies)
-        # Aber imshow zeigt: Rows als Y-Achse, Columns als X-Achse
-        # Also: data[i, j] → Y-Position = i (Zeit), X-Position = j (Frequenz)
-        # Das bedeutet: X=Frequenz, Y=Zeit (zeitlich von unten nach oben)
-        # 
-        # Mit origin='lower': untere Reihe = erste Zeitpunkt (älteste Zeit)
-        # Mit origin='upper': obere Reihe = erste Zeitpunkt (jüngste Zeit)
-        #
-        # Wir wollen: X=Frequenz (20-80 MHz), Y=Zeit (alt→neu von unten nach oben)
-        # Also: extent = [freq_min, freq_max, zeit_min_index, zeit_max_index]
-        #
-        # Aber wir haben reversed timestamps (neueste zuerst), also:
-        # origin='upper' um zeitliche Progression zu zeigen
-        
-        im = ax.imshow(data_clean, aspect='auto', origin='upper',
+        # Erstelle Heatmap mit transponierter Daten
+        # Data shape: (N_frequencies, N_timestamps)
+        # X-Achse = Zeit (0 bis N_timestamps)
+        # Y-Achse = Frequenz (freq_min bis freq_max)
+        im = ax.imshow(data_transposed, aspect='auto', origin='lower',
                        cmap=cmap, vmin=vmin, vmax=vmax,
-                       extent=[y_min, y_max, len(timestamps)-1, 0],  # [freq_min, freq_max, zeit_max, zeit_min]
+                       extent=[time_min_idx, time_max_idx, freq_min_val, freq_max_val],
                        interpolation='nearest')
         
-        # Achsenbeschriftungen - VERTAUSCHT wegen der Transposition!
-        ax.set_xlabel('Frequenz (MHz)', fontsize=11)
-        ax.set_ylabel('Zeit', fontsize=11)
+        # Achsenbeschriftungen
+        ax.set_ylabel('Frequenz (MHz)', fontsize=11)
+        ax.set_xlabel('Zeit', fontsize=11)
         ax.set_title(title, fontsize=14, fontweight='bold')
         
-        # Y-Achse (Zeit) formatieren - KORREKT mit echten Zeitstempeln
+        # X-Achse (Zeit) formatieren
         if len(timestamps) > 0:
             # Bestimme Anzahl der Ticks basierend auf Anzahl der Zeitpunkte
             num_ticks = min(10, max(3, len(timestamps)))
             if len(timestamps) > 20:
                 # Für viele Zeitpunkte: reduziere Anzahl
-                step = len(timestamps) // 8
+                step = max(1, len(timestamps) // 8)
                 tick_indices = list(range(0, len(timestamps), step))
                 if len(timestamps) - 1 not in tick_indices:
                     tick_indices.append(len(timestamps) - 1)
@@ -296,13 +291,14 @@ class FFTHeatmapGenerator:
                 # Für wenige Zeitpunkte: zeige alle
                 tick_indices = list(range(len(timestamps)))
             
-            # Set Y ticks (Zeit) - weil origin='upper', indices sind umgekehrt
-            ax.set_yticks(tick_indices)
+            # Set X ticks (Zeit)
+            ax.set_xticks(tick_indices)
             
             formatted_times = []
             for i in tick_indices:
                 if i < len(timestamps):
-                    time_str = timestamps[i]  # Timestamps sind bereits reversed
+                    # Timestamps sind reversed (neueste zuerst), also Index umkehren
+                    time_str = timestamps[len(timestamps) - 1 - i]
                     try:
                         dt = datetime.fromisoformat(time_str.replace('Z', '+00:00'))
                         # Formatiere Zeit basierend auf Zeitspanne
@@ -313,11 +309,12 @@ class FFTHeatmapGenerator:
                     except:
                         formatted_times.append(time_str[:10])
             
-            ax.set_yticklabels(formatted_times, fontsize=9)
+            ax.set_xticklabels(formatted_times, fontsize=9, rotation=45, ha='right')
         
-        # Colorbar
-        cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label('Leistung (dB)', rotation=270, labelpad=20)
+        # Y-Achse (Frequenz) formatieren
+        freq_ticks = np.linspace(freq_min_val, freq_max_val, 7)
+        ax.set_yticks(freq_ticks)
+        ax.set_yticklabels([f'{f:.1f}' for f in freq_ticks], fontsize=9)
         
         plt.tight_layout()
         
