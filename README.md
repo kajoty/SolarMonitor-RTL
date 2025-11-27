@@ -1,5 +1,10 @@
 # SolarMonitor-RTL
 
+![Python](https://img.shields.io/badge/python-3.11-blue)
+![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi-red)
+![RTL-SDR](https://img.shields.io/badge/RTL--SDR-RTL2838-orange)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 RTL-SDR frequency monitoring system for Raspberry Pi. Captures radio frequency spectrum in the 20-80 MHz band using an RTL2838 DVB-T USB dongle, stores data in SQLite, and provides visualization via REST API and web interface.
 
 ## System Overview

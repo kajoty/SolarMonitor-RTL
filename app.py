@@ -1,3 +1,5 @@
+
+
 """
 Flask REST API for RTL-SDR frequency monitoring with FFT heatmaps.
 Data storage: SQLite via REST API.
@@ -189,6 +191,7 @@ def get_heatmap():
         freq_end = request.args.get('freq_end', type=float, default=None)
         cmap = request.args.get('cmap', 'viridis')
         response_format = request.args.get('format', 'png')
+        receiver = request.args.get('receiver', 'rtl')  # NEU: Empfängerwahl
         
         # Konvertiere Zeit-Presets zu time_range Format
         from datetime import datetime, timedelta, timezone
@@ -265,30 +268,70 @@ def get_heatmap():
                 }), 400
         
         # Heatmap generieren
-        if use_custom_timestamps:
-            heatmap_base64 = heatmap_gen.get_heatmap_data(
-                time_range='custom',  # Marker dass wir Timestamps verwenden
-                band_name=band_name,
-                freq_start=freq_start,
-                freq_end=freq_end,
-                start_time=start_time_param,
-                end_time=end_time_param,
-                cmap=cmap
-            )
+        # NEU: Empfängerwahl
+        if receiver == 'hackrf':
+            from frequency_scanner import HackRFScanner
+            scanner = HackRFScanner(use_mock=False)  # Hardware-Modus
+            bands = HackRFScanner.COMMON_BANDS
         else:
-            heatmap_base64 = heatmap_gen.get_heatmap_data(
-                time_range=time_range_param,
-                band_name=band_name,
-                freq_start=freq_start,
-                freq_end=freq_end,
-                cmap=cmap
-            )
+            from frequency_scanner import RTLSDRScanner
+            scanner = RTLSDRScanner(use_mock=False)  # Hardware-Modus
+            bands = RTLSDRScanner.COMMON_BANDS
+
+        # Band-Auswahl
+        band = bands[0]
+
+        # Dummy: Heatmap aus ScanResult
+        scan_result = scanner.scan_band(band)
+        import spectrum_analyzer
+        buf = spectrum_analyzer.SpectrumAnalyzer.plot_frequency_spectrum([scan_result])
+        import base64
+        heatmap_base64 = base64.b64encode(buf.getvalue()).decode('utf-8') if buf else None
+
+        # === Automatisches Löschen nach jeder dritten 24h-Heatmap ===
+        import os, json
+        COUNTER_FILE = '/tmp/heatmap_24h_counter.json'
+        if time_range_param == '24h' and heatmap_base64 is not None:
+            # Zähler aus Datei lesen
+            try:
+                if os.path.exists(COUNTER_FILE):
+                    with open(COUNTER_FILE, 'r') as f:
+                        counter_data = json.load(f)
+                    count = counter_data.get('count', 0)
+                else:
+                    count = 0
+            except Exception:
+                count = 0
+            count += 1
+            # Schreibe neuen Wert zurück
+            try:
+                with open(COUNTER_FILE, 'w') as f:
+                    json.dump({'count': count}, f)
+            except Exception:
+                pass
+            # Wenn 3 erreicht: Datenbank löschen und Zähler zurücksetzen
+            if count >= 3:
+                try:
+                    # SQLite REST API: alle Daten löschen
+                    resp = requests.post('http://localhost:8002/api/delete', json={'days': 0}, timeout=30)
+                    if resp.status_code == 200:
+                        logger.info('Automatisches Löschen: Alle Datenbankeinträge wurden nach 3x 24h-Heatmap entfernt.')
+                    else:
+                        logger.warning(f'Automatisches Löschen fehlgeschlagen: {resp.text}')
+                except Exception as e:
+                    logger.error(f'Fehler beim automatischen Löschen: {e}')
+                # Zähler zurücksetzen
+                try:
+                    with open(COUNTER_FILE, 'w') as f:
+                        json.dump({'count': 0}, f)
+                except Exception:
+                    pass
         
         if heatmap_base64 is None:
             return jsonify({
                 'status': 'no_data',
                 'message': 'Keine Daten verfügbar. Bitte später erneut versuchen.',
-                'time_range': time_range,
+                'time_range': time_range_param,
                 'band_name': band_name,
                 'timestamp': datetime.now().isoformat()
             }), 202
@@ -296,7 +339,7 @@ def get_heatmap():
         if response_format == 'json':
             return jsonify({
                 'status': 'success',
-                'time_range': time_range,
+                'time_range': time_range_param,
                 'freq_start': freq_start,
                 'freq_end': freq_end,
                 'cmap': cmap,
@@ -878,6 +921,66 @@ if __name__ == '__main__':
     init_heatmap_generator()
     init_scanner()
     scheduler = init_scheduler()
+    
+    # =============================================================
+    # Durchschnittlicher Spektralpegel Plot (API)
+    # =============================================================
+    @app.route('/api/avgpower', methods=['GET'])
+    def get_avg_power_plot():
+        """
+        Gibt einen Plot des durchschnittlichen Spektralpegels (dB) für einen Zeitraum zurück.
+        Query-Parameter:
+          - time_range: '1h', '6h', '24h' (Standard: '1h')
+          - freq_start: Startfrequenz in MHz (Standard: 30)
+          - freq_end: Endfrequenz in MHz (Standard: 85)
+        """
+        import matplotlib.pyplot as plt
+        import base64
+        import io
+        time_range = request.args.get('time_range', '1h')
+        freq_start = float(request.args.get('freq_start', 30))
+        freq_end = float(request.args.get('freq_end', 85))
+        receiver = request.args.get('receiver', 'rtl')  # NEU: Empfängerwahl
+        # Zeitbereich berechnen
+        now = datetime.utcnow()
+        if time_range == '6h':
+            start_time = now - timedelta(hours=6)
+        elif time_range == '24h':
+            start_time = now - timedelta(hours=24)
+        else:
+            start_time = now - timedelta(hours=1)
+        # NEU: Empfängerwahl
+        try:
+            if receiver == 'hackrf':
+                from frequency_scanner import HackRFScanner
+                scanner = HackRFScanner(use_mock=True)
+                bands = HackRFScanner.COMMON_BANDS
+            else:
+                from frequency_scanner import RTLSDRScanner
+                scanner = RTLSDRScanner(use_mock=True)
+                bands = RTLSDRScanner.COMMON_BANDS
+            band = bands[0]
+            scan_result = scanner.scan_band(band)
+            import matplotlib.pyplot as plt
+            import base64
+            import io
+            fig, ax = plt.subplots(figsize=(6,3))
+            ax.plot(scan_result.frequencies, scan_result.power_values, marker='o', color='tab:blue')
+            ax.set_title(f'Durchschnittlicher Spektralpegel ({freq_start}-{freq_end} MHz)')
+            ax.set_xlabel('Frequenz (MHz)')
+            ax.set_ylabel('Pegel (dB)')
+            fig.autofmt_xdate()
+            ax.grid(True, alpha=0.3)
+            buf = io.BytesIO()
+            plt.tight_layout()
+            plt.savefig(buf, format='png')
+            plt.close(fig)
+            buf.seek(0)
+            img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+            return jsonify({'status': 'success', 'image': img_base64})
+        except Exception as e:
+            logger.error(f'Fehler bei avgpower-Plot: {e}', exc_info=True)
+            return jsonify({'status': 'error', 'message': str(e)}), 500
     
     # Starte Flask App
     debug_mode = os.getenv('FLASK_DEBUG', 'False') == 'True'

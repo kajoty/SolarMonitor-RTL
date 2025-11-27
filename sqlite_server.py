@@ -22,8 +22,13 @@ logger = logging.getLogger(__name__)
 
 def init_db():
     """Initialisiere Datenbank-Schema"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
     cursor = conn.cursor()
+    
+    # Aktiviere WAL-Mode für gleichzeitige Lese-/Schreibzugriffe
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA cache_size=-64000")  # 64MB Cache
     
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS frequency_spectrum (
@@ -52,13 +57,13 @@ def init_db():
     
     conn.commit()
     conn.close()
-    logger.info(f"✅ SQLite DB initialisiert: {DB_PATH}")
+    logger.info(f"✅ SQLite DB initialisiert: {DB_PATH} (WAL-Mode aktiv)")
 
 @app.route('/health', methods=['GET'])
 def health():
     """Health Check"""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=30.0)
         conn.execute("SELECT 1")
         conn.close()
         return jsonify({"status": "healthy", "db": DB_PATH}), 200
@@ -87,7 +92,7 @@ def write_data():
         band_name = payload['band_name']
         data = payload['data']
         
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=30.0)
         cursor = conn.cursor()
         
         inserted_count = 0
@@ -144,7 +149,7 @@ def read_data():
         if not band_name:
             return jsonify({"error": "band_name required"}), 400
         
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=30.0)
         cursor = conn.cursor()
         
         # Bestimme WHERE-Klausel für Zeit
@@ -250,7 +255,7 @@ def read_data():
 def stats():
     """Statistiken über gespeicherte Daten"""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=30.0)
         cursor = conn.cursor()
         
         # Total count
@@ -282,7 +287,7 @@ def delete_data():
     try:
         days = request.json.get('days', 7)
         
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=30.0)
         cursor = conn.cursor()
         cursor.execute(
             "DELETE FROM frequency_spectrum WHERE datetime(timestamp) < datetime('now', '-' || ? || ' days')",

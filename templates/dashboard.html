@@ -365,14 +365,19 @@
                     <button class="preset-btn" data-range="1h">1 Stunde</button>
                     <button class="preset-btn" data-range="6h">6 Stunden</button>
                     <button class="preset-btn active" data-range="24h">24 Stunden</button>
-                    <button class="preset-btn" data-range="7d">7 Tage</button>
-                    <button class="preset-btn" data-range="30d">30 Tage</button>
                 </div>
 
                 <!-- Tab Content: Band Spectrum -->
                 <div class="tab-content active" id="bands-tab">
                     <!-- Control Grid for Bands -->
                     <div class="control-grid" style="margin-top: 20px;">
+                        <div class="control-group">
+                            <label for="receiverSelect">Empfänger</label>
+                            <select id="receiverSelect">
+                                <option value="rtl">RTL-SDR</option>
+                                <option value="hackrf">HackRF</option>
+                            </select>
+                        </div>
                         <div class="control-group">
                             <label for="bandSelect">☀️ Solar Radio Monitoring</label>
                             <select id="bandSelect">
@@ -386,8 +391,6 @@
                                 <option value="1h">1 Stunde</option>
                                 <option value="6h">6 Stunden</option>
                                 <option value="24h" selected>24 Stunden</option>
-                                <option value="7d">7 Tage</option>
-                                <option value="30d">30 Tage</option>
                             </select>
                         </div>
 
@@ -427,12 +430,56 @@
             </div>
         </div>
 
+        <!-- Neue Auswertung: Durchschnittlicher Spektralpegel -->
+        <div class="heatmap-container" id="avgPowerContainer" style="margin-bottom: 30px;">
+            <div class="loading">
+                <div class="spinner"></div>
+                <p>Warte auf Durchschnitts-Pegel...</p>
+            </div>
+        </div>
         <!-- Footer -->
         <div class="footer">
             <p>SolarMonitor-RTL v1.0 | RTL-SDR Frequency Monitoring System</p>
             <p>Raspberry Pi 4B + RTL2838 USB Dongle | SQLite Time-Series Database</p>
         </div>
     </div>
+
+                // Geräteauswahl für Durchschnittspegel
+                document.getElementById('receiverSelect').addEventListener('change', () => {
+                    generateAvgPowerPlot();
+                });
+                generateBandBtn.addEventListener('click', () => {
+                    generateAvgPowerPlot();
+                });
+                document.addEventListener('DOMContentLoaded', () => {
+                    generateAvgPowerPlot();
+                });
+        async function generateAvgPowerPlot() {
+            const receiver = document.getElementById('receiverSelect').value;
+            const timeRange = bandTimeRangeSelect.value;
+            const params = new URLSearchParams({
+                time_range: timeRange,
+                receiver: receiver
+            });
+            const avgPowerContainer = document.getElementById('avgPowerContainer');
+            avgPowerContainer.innerHTML = `<div class="loading"><div class="spinner"></div><p>Berechne Durchschnittspegel...</p></div>`;
+            try {
+                const response = await fetch(`${API_BASE}/avgpower?${params}`);
+                const data = await response.json();
+                if (data.status === 'success' && data.image) {
+                    const img = document.createElement('img');
+                    img.src = `data:image/png;base64,${data.image}`;
+                    img.className = 'heatmap-image';
+                    img.alt = 'Durchschnittlicher Spektralpegel';
+                    avgPowerContainer.innerHTML = '';
+                    avgPowerContainer.appendChild(img);
+                } else {
+                    avgPowerContainer.innerHTML = `<div class="error show">${data.message || 'Fehler beim Abrufen des Durchschnittspegels.'}</div>`;
+                }
+            } catch (error) {
+                avgPowerContainer.innerHTML = `<div class="error show">${error.message}</div>`;
+            }
+        }
 
     <script>
         // Configuration
@@ -610,13 +657,14 @@
             clearError();
 
             try {
+                const receiver = document.getElementById('receiverSelect').value;
                 const params = new URLSearchParams({
                     band_name: bandName,
                     time_range: bandTimeRangeSelect.value,
                     cmap: bandColormapSelect.value,
-                    format: 'json'
+                    format: 'json',
+                    receiver: receiver
                 });
-
                 const response = await fetch(`${API_BASE}/heatmap/band?${params}`);
                 const data = await response.json();
 
@@ -666,7 +714,7 @@
          */
         function updateBandInfo(data) {
             let infoStr = `✅ Band-Heatmap generiert für <strong>${data.band_name}</strong> (${data.freq_start}-${data.freq_end} MHz)`;
-            infoStr += ` | Zeitraum: <strong>${data.time_range}</strong>`;
+            infoStr += ` | Zeitraum: <strong>${data.time_range === '1h' ? '1 Stunde' : data.time_range === '6h' ? '6 Stunden' : '24 Stunden'}</strong>`;
             infoStr += ` | Farbschema: <strong>${data.cmap}</strong> | Zeit: <strong>${new Date(data.timestamp).toLocaleString('de-DE')}</strong>`;
             infoText.innerHTML = infoStr;
         }
