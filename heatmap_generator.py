@@ -88,7 +88,7 @@ class FFTHeatmapGenerator:
         try:
             # Rufe SQLite REST API auf
             params = {
-                'band_name': band_name_clean,
+                'band_name': 'Solar Radio',  # Standard-Band für avgpower
                 'receiver': receiver,
             }
             
