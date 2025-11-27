@@ -25,7 +25,7 @@ load_dotenv()
 
 # Import der Module
 from heatmap_generator import create_heatmap_generator_from_env
-from frequency_scanner import create_scanner_from_env, FrequencyAnalyzer, RTLSDRScanner
+from frequency_scanner import create_scanner_from_env, FrequencyAnalyzer, RTLSDRScanner, HACKRF_AVAILABLE
 from spectrum_analyzer import SpectrumAnalyzer
 
 # Logging konfigurieren
@@ -38,7 +38,8 @@ CORS(app)
 
 # Globale Instanzen
 heatmap_gen = None
-scanner = None
+rtl_scanner = None
+hackrf_scanner = None
 scan_results = None
 scan_in_progress = False
 scan_lock = threading.Lock()
@@ -47,7 +48,7 @@ scan_lock = threading.Lock()
 
 
 
-def write_scan_to_sqlite(results):
+def write_scan_to_sqlite(results, receiver='rtl'):
     """Schreibe Scan-Ergebnisse in SQLite via REST API"""
     try:
         for result in results:
@@ -72,6 +73,7 @@ def write_scan_to_sqlite(results):
                 payload = {
                     "timestamp": result.timestamp,
                     "band_name": band_name_clean,
+                    "receiver": receiver,
                     "data": data_points
                 }
                 
@@ -112,23 +114,33 @@ def init_heatmap_generator():
 
 
 def init_scanner():
-    """Initialisiert den RTL-SDR Scanner beim Start"""
-    global scanner
+    """Initialisiert die verfügbaren Scanner beim Start"""
+    global rtl_scanner, hackrf_scanner
     try:
-        scanner = create_scanner_from_env()
-        logger.info("RTL-SDR Scanner erfolgreich initialisiert")
+        rtl_scanner = create_scanner_from_env()
+        logger.info("✅ RTL-SDR Scanner initialisiert")
+        
+        # HackRF nur initialisieren wenn aktiviert
+        if os.getenv('HACKRF_ENABLED', 'false').lower() == 'true':
+            hackrf_scanner = HackRFScanner(use_mock=False)
+            logger.info("✅ HackRF Scanner initialisiert")
+        else:
+            hackrf_scanner = HackRFScanner(use_mock=True)
+            logger.info("ℹ️ HackRF Scanner im Mock-Modus (nicht aktiviert)")
+            
     except Exception as e:
-        logger.warning(f"RTL-SDR Scanner nicht verfügbar: {e}")
-        scanner = None
+        logger.error(f"❌ Fehler bei Scanner-Initialisierung: {e}")
+        rtl_scanner = None
+        hackrf_scanner = None
 
 
 @app.before_request
 def before_request():
     """Initialize generators on first request"""
-    global heatmap_gen, scanner
+    global heatmap_gen, rtl_scanner, hackrf_scanner
     if heatmap_gen is None:
         init_heatmap_generator()
-    if scanner is None:
+    if rtl_scanner is None or hackrf_scanner is None:
         init_scanner()
 
 
@@ -268,25 +280,19 @@ def get_heatmap():
                 }), 400
         
         # Heatmap generieren
-        # NEU: Empfängerwahl
-        if receiver == 'hackrf':
-            from frequency_scanner import HackRFScanner
-            scanner = HackRFScanner(use_mock=False)  # Hardware-Modus
-            bands = HackRFScanner.COMMON_BANDS
-        else:
-            from frequency_scanner import RTLSDRScanner
-            scanner = RTLSDRScanner(use_mock=False)  # Hardware-Modus
-            bands = RTLSDRScanner.COMMON_BANDS
-
-        # Band-Auswahl
-        band = bands[0]
-
-        # Dummy: Heatmap aus ScanResult
-        scan_result = scanner.scan_band(band)
-        import spectrum_analyzer
-        buf = spectrum_analyzer.SpectrumAnalyzer.plot_frequency_spectrum([scan_result])
-        import base64
-        heatmap_base64 = base64.b64encode(buf.getvalue()).decode('utf-8') if buf else None
+        # NEU: Empfängerwahl - aber für Heatmap verwenden wir die gespeicherten Daten aus DB
+        # Der receiver-Parameter wird ignoriert, da Heatmaps aus historischen Daten kommen
+        
+        # Verwende den echten Heatmap-Generator aus der DB
+        heatmap_base64 = heatmap_gen.get_heatmap_data(
+            time_range=time_range_param if not use_custom_timestamps else None,
+            band_name=band_name,
+            freq_start=freq_start,
+            freq_end=freq_end,
+            start_time=start_time_param if use_custom_timestamps else None,
+            end_time=end_time_param if use_custom_timestamps else None,
+            cmap=cmap
+        )
 
         # === Automatisches Löschen nach jeder dritten 24h-Heatmap ===
         import os, json
@@ -537,10 +543,17 @@ def health_check():
             health_status['status'] = 'degraded'
         
         # Prüfe Scanner
-        if scanner:
-            health_status['scanner'] = 'initialized'
+        scanners_status = []
+        if rtl_scanner:
+            scanners_status.append('rtl-sdr')
+        if hackrf_scanner:
+            scanners_status.append('hackrf')
+        
+        if scanners_status:
+            health_status['scanners'] = scanners_status
         else:
-            health_status['scanner'] = 'not_initialized'
+            health_status['scanners'] = 'none_initialized'
+            health_status['status'] = 'degraded'
         
         status_code = 200 if health_status['status'] == 'healthy' else 503
         return jsonify(health_status), status_code
@@ -586,7 +599,7 @@ def get_scan_status():
 @app.route('/api/scan/start', methods=['POST'])
 def start_frequency_scan():
     """
-    Startet einen Frequenzbereich-Scan
+    Startet einen Frequenzbereich-Scan mit allen verfügbaren Scannern
     
     Optional JSON Body:
     {
@@ -596,12 +609,18 @@ def start_frequency_scan():
         ]
     }
     """
-    global scan_in_progress, scan_results, scanner
+    global scan_in_progress, scan_results, rtl_scanner, hackrf_scanner
     
-    if not scanner:
+    available_scanners = []
+    if rtl_scanner:
+        available_scanners.append('rtl')
+    if hackrf_scanner:
+        available_scanners.append('hackrf')
+    
+    if not available_scanners:
         return jsonify({
             'status': 'error',
-            'message': 'RTL-SDR Scanner nicht verfügbar'
+            'message': 'Keine Scanner verfügbar'
         }), 503
     
     with scan_lock:
@@ -619,24 +638,46 @@ def start_frequency_scan():
     
     def run_scan():
         """Führe Scan im Background aus"""
-        global scan_results, scan_in_progress
+        global scan_results, scan_in_progress, rtl_scanner, hackrf_scanner
         
         try:
-            logger.info("Starte Frequenzbereich-Scan...")
+            logger.info("Starte Frequenzbereich-Scan mit allen verfügbaren Scannern...")
             
-            # Führe Scan durch
-            if quick_scan:
-                results = scanner.find_active_bands()
-            else:
-                results = scanner.scan_all_bands()
+            all_results = []
             
-            # Analysiere Ergebnisse
-            analysis = FrequencyAnalyzer.recommend_bands(results)
+            # Scanne mit RTL-SDR
+            if rtl_scanner:
+                logger.info("📡 Manuell: Scanne mit RTL-SDR...")
+                if quick_scan:
+                    rtl_results = rtl_scanner.find_active_bands()
+                else:
+                    rtl_results = rtl_scanner.scan_all_bands()
+                if rtl_results:
+                    write_scan_to_sqlite(rtl_results, receiver='rtl')
+                    all_results.extend(rtl_results)
+                    logger.info(f"✅ RTL-SDR: {len(rtl_results)} Bänder gescannt")
             
-            # Schreibe Ergebnisse in SQLite via REST API
-            write_scan_to_sqlite(results)
+            # Scanne mit HackRF
+            if hackrf_scanner:
+                logger.info("📡 Manuell: Scanne mit HackRF...")
+                if quick_scan:
+                    hackrf_results = hackrf_scanner.find_active_bands()
+                else:
+                    hackrf_results = hackrf_scanner.scan_all_bands()
+                if hackrf_results:
+                    write_scan_to_sqlite(hackrf_results, receiver='hackrf')
+                    all_results.extend(hackrf_results)
+                    logger.info(f"✅ HackRF: {len(hackrf_results)} Bänder gescannt")
+            
+            if not all_results:
+                logger.warning("Keine Scans erfolgreich")
+                return
+            
+            # Analysiere alle Ergebnisse
+            analysis = FrequencyAnalyzer.recommend_bands(all_results)
             
             # Konvertiere Results zu dictionaries und speichere GLOBAL
+            scan_data = [r.to_dict() for r in all_results]
             scan_data = [r.to_dict() for r in results]
             
             # Weise global Variable zu
@@ -830,8 +871,8 @@ def get_monitored_bands():
         return [RTLSDRScanner.COMMON_BANDS[4], RTLSDRScanner.COMMON_BANDS[5]]
 
 def run_automatic_scan():
-    """Führe automatischen Scan aus (wird von Scheduler aufgerufen)"""
-    global scan_in_progress, scan_results, scanner
+    """Führe automatischen Scan mit beiden verfügbaren Scannern aus"""
+    global scan_in_progress, scan_results, rtl_scanner, hackrf_scanner
     
     # Verhindere parallele Scans
     with scan_lock:
@@ -843,36 +884,53 @@ def run_automatic_scan():
     try:
         logger.info("🔄 Starte automatischen Frequenzbereich-Scan...")
         
-        if not scanner:
-            logger.warning("Scanner nicht verfügbar - überspringe Scan")
-            return
-        
-        # Hole nur die konfigurierten Bänder
+        # Hole die zu überwachenden Bänder
         monitored_bands = get_monitored_bands()
         
-        # Scanne nur die überwachten Bänder
-        results = []
-        for band in monitored_bands:
-            result = scanner.scan_band(band)
-            if result:
-                results.append(result)
-                logger.info(f"✅ Scan für {band.name} abgeschlossen")
+        all_results = []
         
-        # Analysiere Ergebnisse
-        analysis = FrequencyAnalyzer.recommend_bands(results)
+        # Scanne mit RTL-SDR
+        if rtl_scanner:
+            logger.info("📡 Scanne mit RTL-SDR...")
+            rtl_results = []
+            for band in monitored_bands:
+                result = rtl_scanner.scan_band(band)
+                if result:
+                    rtl_results.append(result)
+                    logger.info(f"✅ RTL-SDR Scan für {band.name} abgeschlossen")
+            if rtl_results:
+                write_scan_to_sqlite(rtl_results, receiver='rtl')
+                all_results.extend(rtl_results)
         
-        # Schreibe Ergebnisse in SQLite via REST API
-        write_scan_to_sqlite(results)
+        # Scanne mit HackRF
+        if hackrf_scanner:
+            logger.info("📡 Scanne mit HackRF...")
+            hackrf_results = []
+            for band in monitored_bands:
+                result = hackrf_scanner.scan_band(band)
+                if result:
+                    hackrf_results.append(result)
+                    logger.info(f"✅ HackRF Scan für {band.name} abgeschlossen")
+            if hackrf_results:
+                write_scan_to_sqlite(hackrf_results, receiver='hackrf')
+                all_results.extend(hackrf_results)
+        
+        if not all_results:
+            logger.warning("Keine Scans erfolgreich - keine Daten gespeichert")
+            return
+        
+        # Analysiere alle Ergebnisse zusammen
+        analysis = FrequencyAnalyzer.recommend_bands(all_results)
         
         # Speichere im Speicher
-        scan_data = [r.to_dict() for r in results]
+        scan_data = [r.to_dict() for r in all_results]
         globals()['scan_results'] = {
             'scan_data': scan_data,
             'analysis': analysis,
             'timestamp': datetime.now().isoformat()
         }
         
-        logger.info(f"✅ Automatischer Scan abgeschlossen: {len(results)} Bänder gescannt")
+        logger.info(f"✅ Automatischer Scan abgeschlossen: {len(all_results)} Bänder gescannt ({len(rtl_results) if rtl_scanner else 0} RTL, {len(hackrf_results) if hackrf_scanner else 0} HackRF)")
     
     except Exception as e:
         logger.error(f"❌ Fehler während automatischem Scan: {e}", exc_info=True)
@@ -953,11 +1011,11 @@ if __name__ == '__main__':
         try:
             if receiver == 'hackrf':
                 from frequency_scanner import HackRFScanner
-                scanner = HackRFScanner(use_mock=True)
+                scanner = HackRFScanner(use_mock=False)  # Hardware-Modus
                 bands = HackRFScanner.COMMON_BANDS
             else:
                 from frequency_scanner import RTLSDRScanner
-                scanner = RTLSDRScanner(use_mock=True)
+                scanner = RTLSDRScanner(use_mock=False)  # Hardware-Modus
                 bands = RTLSDRScanner.COMMON_BANDS
             band = bands[0]
             scan_result = scanner.scan_band(band)

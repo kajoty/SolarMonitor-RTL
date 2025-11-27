@@ -55,6 +55,7 @@ class FFTHeatmapGenerator:
                           freq_end: Optional[float] = None,
                           start_time: str = None,
                           end_time: str = None,
+                          receiver: str = None,
                           exclude_last_scans: int = 2) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Lädt Frequenzspektrum-Daten aus SQLite via REST API
@@ -66,6 +67,7 @@ class FFTHeatmapGenerator:
             freq_end: Endfrequenz in MHz (optional)
             start_time: ISO-8601 Start-Timestamp (optional, überschreibt time_range)
             end_time: ISO-8601 End-Timestamp (optional)
+            receiver: 'rtl' oder 'hackrf' (optional, default: alle)
             exclude_last_scans: Anzahl der neuesten Scans auszuschließen (default: 2)
             
         Returns:
@@ -87,16 +89,17 @@ class FFTHeatmapGenerator:
             # Rufe SQLite REST API auf
             params = {
                 'band_name': band_name_clean,
+                'receiver': receiver,
             }
             
             # Verwende start_time/end_time wenn vorhanden, sonst time_range
             if start_time and end_time:
                 params['start_time'] = start_time
                 params['end_time'] = end_time
-                logger.info(f"SQLite Query: time_range={start_time} bis {end_time}, band_name={band_name_clean}")
+                logger.info(f"SQLite Query: time_range={start_time} bis {end_time}, band_name={band_name_clean}, receiver={receiver}")
             else:
                 params['time_range'] = time_range
-                logger.info(f"SQLite Query: time_range={time_range}, band_name={band_name_clean}")
+                logger.info(f"SQLite Query: time_range={time_range}, band_name={band_name_clean}, receiver={receiver}")
             
             response = requests.get(
                 f"{self.sqlite_rest_url}/api/read",
@@ -361,6 +364,7 @@ class FFTHeatmapGenerator:
                         freq_end: Optional[float] = None,
                         start_time: str = None,
                         end_time: str = None,
+                        receiver: str = None,
                         title: str = "FFT Spektrum Heatmap",
                         cmap: str = 'viridis',
                         exclude_last_scans: int = 2) -> Optional[str]:
@@ -374,6 +378,7 @@ class FFTHeatmapGenerator:
             freq_end: Endfrequenz
             start_time: ISO-8601 Start-Timestamp (optional, überschreibt time_range)
             end_time: ISO-8601 End-Timestamp (optional)
+            receiver: 'rtl' oder 'hackrf' (optional, default: alle)
             title: Grafik-Titel
             cmap: Colormap
             exclude_last_scans: Anzahl der neuesten Scans auszuschließen (default: 2)
@@ -385,6 +390,7 @@ class FFTHeatmapGenerator:
             spektrum_data, timestamps, frequencies = self.get_frequency_data(
                 time_range, band_name, freq_start, freq_end, 
                 start_time=start_time, end_time=end_time,
+                receiver=receiver,
                 exclude_last_scans=exclude_last_scans
             )
             

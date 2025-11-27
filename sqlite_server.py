@@ -37,6 +37,7 @@ def init_db():
             band_name TEXT NOT NULL,
             frequency REAL NOT NULL,
             power REAL NOT NULL,
+            receiver TEXT NOT NULL DEFAULT 'rtl',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -53,6 +54,10 @@ def init_db():
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_timestamp 
         ON frequency_spectrum(timestamp)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_receiver 
+        ON frequency_spectrum(receiver)
     """)
     
     conn.commit()
@@ -79,6 +84,7 @@ def write_data():
     {
         "timestamp": "2025-11-17T20:39:07Z",
         "band_name": "Solar Radio",
+        "receiver": "rtl" | "hackrf" (optional, default: "rtl"),
         "data": [
             {"frequency": 20.0, "power": -45.3},
             {"frequency": 20.12, "power": -43.1},
@@ -90,6 +96,7 @@ def write_data():
         payload = request.get_json()
         timestamp = payload['timestamp']
         band_name = payload['band_name']
+        receiver = payload.get('receiver', 'rtl')
         data = payload['data']
         
         conn = sqlite3.connect(DB_PATH, timeout=30.0)
@@ -103,8 +110,8 @@ def write_data():
             # Überspringe NaN
             if freq == freq and power == power:  # NaN check
                 cursor.execute(
-                    "INSERT INTO frequency_spectrum (timestamp, band_name, frequency, power) VALUES (?, ?, ?, ?)",
-                    (timestamp, band_name, freq, power)
+                    "INSERT INTO frequency_spectrum (timestamp, band_name, frequency, power, receiver) VALUES (?, ?, ?, ?, ?)",
+                    (timestamp, band_name, freq, power, receiver)
                 )
                 inserted_count += 1
         
@@ -129,6 +136,7 @@ def read_data():
     
     Parameter:
     - band_name: Band-Name (erforderlich)
+    - receiver: 'rtl' oder 'hackrf' (optional, default: alle)
     - time_range: '1h', '6h', '24h', '7d', '30d' (Standard: '24h') ODER
     - start_time: ISO-8601 Timestamp (z.B. '2025-11-17T00:00:00')
     - end_time: ISO-8601 Timestamp (optional, default: jetzt)
@@ -142,6 +150,7 @@ def read_data():
     """
     try:
         band_name = request.args.get('band_name')
+        receiver = request.args.get('receiver')
         time_range = request.args.get('time_range', None)
         start_time = request.args.get('start_time', None)
         end_time = request.args.get('end_time', None)
@@ -152,17 +161,25 @@ def read_data():
         conn = sqlite3.connect(DB_PATH, timeout=30.0)
         cursor = conn.cursor()
         
-        # Bestimme WHERE-Klausel für Zeit
+        # Bestimme WHERE-Klausel für Zeit und Receiver
+        base_where = "band_name = ?"
+        params = [band_name]
+        
+        if receiver:
+            base_where += " AND receiver = ?"
+            params.append(receiver)
+        
         if start_time and end_time:
             # Absolute Zeitstempel verwenden
-            query = """
+            query = f"""
                 SELECT timestamp, frequency, power 
                 FROM frequency_spectrum 
-                WHERE band_name = ? AND timestamp >= ? AND timestamp <= ?
+                WHERE {base_where} AND timestamp >= ? AND timestamp <= ?
                 ORDER BY timestamp DESC, frequency ASC
             """
-            rows = cursor.execute(query, (band_name, start_time, end_time)).fetchall()
-            logger.info(f"Query: {band_name} zwischen {start_time} und {end_time}")
+            params.extend([start_time, end_time])
+            rows = cursor.execute(query, params).fetchall()
+            logger.info(f"Query: {band_name} receiver={receiver} zwischen {start_time} und {end_time}")
         elif time_range:
             # time_range verwenden
             time_map = {
@@ -178,25 +195,27 @@ def read_data():
             
             cutoff_seconds = time_map[time_range]
             
-            query = """
+            query = f"""
                 SELECT timestamp, frequency, power 
                 FROM frequency_spectrum 
-                WHERE band_name = ? AND datetime(timestamp) > datetime('now', '-' || ? || ' seconds')
+                WHERE {base_where} AND datetime(timestamp) > datetime('now', '-' || ? || ' seconds')
                 ORDER BY timestamp DESC, frequency ASC
             """
-            rows = cursor.execute(query, (band_name, cutoff_seconds)).fetchall()
-            logger.info(f"Query: {band_name} time_range={time_range}")
+            params.append(cutoff_seconds)
+            rows = cursor.execute(query, params).fetchall()
+            logger.info(f"Query: {band_name} receiver={receiver} time_range={time_range}")
         else:
             # Default: 24h
             cutoff_seconds = 24*3600
-            query = """
+            query = f"""
                 SELECT timestamp, frequency, power 
                 FROM frequency_spectrum 
-                WHERE band_name = ? AND datetime(timestamp) > datetime('now', '-' || ? || ' seconds')
+                WHERE {base_where} AND datetime(timestamp) > datetime('now', '-' || ? || ' seconds')
                 ORDER BY timestamp DESC, frequency ASC
             """
-            rows = cursor.execute(query, (band_name, cutoff_seconds)).fetchall()
-            logger.info(f"Query: {band_name} (default 24h)")
+            params.append(cutoff_seconds)
+            rows = cursor.execute(query, params).fetchall()
+            logger.info(f"Query: {band_name} receiver={receiver} (default 24h)")
         
         conn.close()
         

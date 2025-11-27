@@ -340,12 +340,8 @@ class HackRFScanner:
         self.use_mock = use_mock
         self.device = None
         if not use_mock and HACKRF_AVAILABLE:
-            try:
-                self.device = HackRF()
-                self.device.setup()
-            except Exception as e:
-                logger.warning(f"HackRF Gerät nicht verbunden: {e}")
-                self.device = None
+            # HackRF wird nur über subprocess verwendet, kein Python-Objekt
+            pass
         else:
             logger.info("Starte HackRF im Mock-Modus (kein Hardware erforderlich)")
 
