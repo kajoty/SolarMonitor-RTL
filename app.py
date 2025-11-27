@@ -989,56 +989,66 @@ if __name__ == '__main__':
         Gibt einen Plot des durchschnittlichen Spektralpegels (dB) für einen Zeitraum zurück.
         Query-Parameter:
           - time_range: '1h', '6h', '24h' (Standard: '1h')
-          - freq_start: Startfrequenz in MHz (Standard: 30)
-          - freq_end: Endfrequenz in MHz (Standard: 85)
+          - receiver: 'rtl', 'hackrf', oder None für alle (Standard: None)
         """
-        import matplotlib.pyplot as plt
-        import base64
-        import io
-        time_range = request.args.get('time_range', '1h')
-        freq_start = float(request.args.get('freq_start', 30))
-        freq_end = float(request.args.get('freq_end', 85))
-        receiver = request.args.get('receiver', 'rtl')  # NEU: Empfängerwahl
-        # Zeitbereich berechnen
-        now = datetime.utcnow()
-        if time_range == '6h':
-            start_time = now - timedelta(hours=6)
-        elif time_range == '24h':
-            start_time = now - timedelta(hours=24)
-        else:
-            start_time = now - timedelta(hours=1)
-        # NEU: Empfängerwahl
         try:
-            if receiver == 'hackrf':
-                from frequency_scanner import HackRFScanner
-                scanner = HackRFScanner(use_mock=False)  # Hardware-Modus
-                bands = HackRFScanner.COMMON_BANDS
-            else:
-                from frequency_scanner import RTLSDRScanner
-                scanner = RTLSDRScanner(use_mock=False)  # Hardware-Modus
-                bands = RTLSDRScanner.COMMON_BANDS
-            band = bands[0]
-            scan_result = scanner.scan_band(band)
-            import matplotlib.pyplot as plt
-            import base64
-            import io
-            fig, ax = plt.subplots(figsize=(6,3))
-            ax.plot(scan_result.frequencies, scan_result.power_values, marker='o', color='tab:blue')
-            ax.set_title(f'Durchschnittlicher Spektralpegel ({freq_start}-{freq_end} MHz)')
-            ax.set_xlabel('Frequenz (MHz)')
-            ax.set_ylabel('Pegel (dB)')
-            fig.autofmt_xdate()
+            time_range = request.args.get('time_range', '24h')
+            receiver = request.args.get('receiver', None)
+            
+            # Hole historische Daten aus der Datenbank via Heatmap-Generator
+            spektrum_data, timestamps, frequencies = heatmap_gen.get_frequency_data(
+                time_range=time_range, 
+                receiver=receiver
+            )
+            
+            if spektrum_data is None or len(spektrum_data) == 0:
+                return jsonify({
+                    "status": "error", 
+                    "message": "Keine Daten für den gewählten Zeitraum verfügbar"
+                }), 404
+            
+            # Berechne Durchschnittspegel über alle Zeitpunkte
+            avg_power = np.mean(spektrum_data, axis=0)
+            
+            # Erstelle Plot
+            fig, ax = plt.subplots(figsize=(12, 6))
+            
+            ax.plot(frequencies, avg_power, 'b-', linewidth=2, alpha=0.8, label='Durchschnitt')
+            ax.fill_between(frequencies, avg_power, alpha=0.3, color='blue')
+            
+            ax.set_xlabel('Frequenz (MHz)', fontsize=12)
+            ax.set_ylabel('Durchschnittsleistung (dB)', fontsize=12)
+            ax.set_title(f'Durchschnittlicher Spektralpegel - {time_range.upper()}', fontsize=14, fontweight='bold')
             ax.grid(True, alpha=0.3)
-            buf = io.BytesIO()
+            
+            # X-Achse formatieren
+            ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:.1f}'))
+            
+            # Layout optimieren
             plt.tight_layout()
-            plt.savefig(buf, format='png')
-            plt.close(fig)
+            
+            # In Base64 konvertieren
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
             buf.seek(0)
             img_base64 = base64.b64encode(buf.read()).decode('utf-8')
-            return jsonify({'status': 'success', 'image': img_base64})
+            plt.close(fig)
+            
+            return jsonify({
+                "status": "success",
+                "image": img_base64,
+                "time_range": time_range,
+                "receiver": receiver or "all",
+                "data_points": len(frequencies),
+                "time_samples": len(timestamps)
+            })
+            
         except Exception as e:
             logger.error(f'Fehler bei avgpower-Plot: {e}', exc_info=True)
-            return jsonify({'status': 'error', 'message': str(e)}), 500
+            return jsonify({
+                "status": "error", 
+                "message": f"Interner Fehler: {str(e)}"
+            }), 500
     
     # Starte Flask App
     debug_mode = os.getenv('FLASK_DEBUG', 'False') == 'True'
