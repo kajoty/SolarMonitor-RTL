@@ -444,28 +444,42 @@
         </div>
     </div>
 
-                // Geräteauswahl für Durchschnittspegel
-                document.getElementById('receiverSelect').addEventListener('change', () => {
-                    generateAvgPowerPlot();
-                });
-                generateBandBtn.addEventListener('click', () => {
-                    generateAvgPowerPlot();
-                });
-                document.addEventListener('DOMContentLoaded', () => {
-                    generateAvgPowerPlot();
-                });
+        // Geräteauswahl für Durchschnittspegel
+        document.getElementById('receiverSelect').addEventListener('change', () => {
+            generateAvgPowerPlot();
+        });
+        
+        // Band-Heatmap generieren triggert auch Durchschnittspegel
+        generateBandBtn.addEventListener('click', () => {
+            generateAvgPowerPlot();
+        });
+        
+        // Initial beim Laden
+        document.addEventListener('DOMContentLoaded', () => {
+            generateAvgPowerPlot();
+        });
+        
         async function generateAvgPowerPlot() {
             const receiver = document.getElementById('receiverSelect').value;
             const timeRange = bandTimeRangeSelect.value;
+            
             const params = new URLSearchParams({
                 time_range: timeRange,
                 receiver: receiver
             });
+            
             const avgPowerContainer = document.getElementById('avgPowerContainer');
-            avgPowerContainer.innerHTML = `<div class="loading"><div class="spinner"></div><p>Berechne Durchschnittspegel...</p></div>`;
+            avgPowerContainer.innerHTML = `
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>Berechne Durchschnittspegel...</p>
+                </div>
+            `;
+            
             try {
                 const response = await fetch(`${API_BASE}/avgpower?${params}`);
                 const data = await response.json();
+                
                 if (data.status === 'success' && data.image) {
                     const img = document.createElement('img');
                     img.src = `data:image/png;base64,${data.image}`;
@@ -474,10 +488,18 @@
                     avgPowerContainer.innerHTML = '';
                     avgPowerContainer.appendChild(img);
                 } else {
-                    avgPowerContainer.innerHTML = `<div class="error show">${data.message || 'Fehler beim Abrufen des Durchschnittspegels.'}</div>`;
+                    avgPowerContainer.innerHTML = `
+                        <div class="error show">
+                            ${data.message || 'Fehler beim Abrufen des Durchschnittspegels.'}
+                        </div>
+                    `;
                 }
             } catch (error) {
-                avgPowerContainer.innerHTML = `<div class="error show">${error.message}</div>`;
+                avgPowerContainer.innerHTML = `
+                    <div class="error show">
+                        ${error.message}
+                    </div>
+                `;
             }
         }
 
