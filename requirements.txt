@@ -5,6 +5,7 @@ flask-cors
 apscheduler
 requests
 pyrtlsdr
+rtl-sdr
 numpy
 matplotlib
 scipy
