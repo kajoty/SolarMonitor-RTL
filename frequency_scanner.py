@@ -1,7 +1,3 @@
-import shutil
-
-# Prüfe, ob HackRF-CLI verfügbar ist
-HACKRF_AVAILABLE = shutil.which('hackrf_transfer') is not None
 """
 RTL-SDR Frequenzbereich-Scanner und Analyzer
 Ermittelt verfügbare und aktive Frequenzbereiche auf dem RTL2838 USB Dongle
@@ -326,74 +322,6 @@ class RTLSDRScanner:
                 logger.info("RTL-SDR Verbindung geschlossen")
             except Exception as e:
                 logger.error(f"Fehler beim Schließen: {e}")
-
-
-class HackRFScanner:
-    """Scannt Frequenzbereiche mit HackRF Hardware (Stub-Version)"""
-    COMMON_BANDS = [
-        FrequencyBand("HackRF (20-6000 MHz)", 20.0, 6000.0, "HackRF Full Range")
-    ]
-
-    def __init__(self, sample_rate: int = 10000000, gain: int = 20, use_mock: bool = False):
-        self.sample_rate = sample_rate
-        self.gain = gain
-        self.use_mock = use_mock
-        self.device = None
-        if not use_mock and HACKRF_AVAILABLE:
-            # HackRF wird nur über subprocess verwendet, kein Python-Objekt
-            pass
-        else:
-            logger.info("Starte HackRF im Mock-Modus (kein Hardware erforderlich)")
-
-    def scan_band(self, band: FrequencyBand):
-        import numpy as np
-        import subprocess
-        import tempfile
-        # Parameter für HackRF
-        freq_center = int((band.freq_start + band.freq_end) / 2 * 1e6)
-        sample_rate = self.sample_rate
-        num_samples = 256 * 1024  # 256k Samples
-        with tempfile.NamedTemporaryFile(suffix='.bin') as tmpfile:
-            cmd = [
-                'hackrf_transfer',
-                '-r', tmpfile.name,
-                '-f', str(freq_center),
-                '-s', str(sample_rate),
-                '-n', str(num_samples),
-                '-g', str(self.gain)
-            ]
-            try:
-                subprocess.run(cmd, check=True, timeout=10)
-                # Dummy: Erzeuge Powerdaten aus Binärdatei
-                raw = np.fromfile(tmpfile.name, dtype=np.int8)
-                # Berechne Power pro Block
-                block_size = 1024
-                num_blocks = len(raw) // block_size
-                powers = []
-                for i in range(num_blocks):
-                    block = raw[i*block_size:(i+1)*block_size]
-                    power = 10 * np.log10(np.mean(block.astype(np.float32)**2) + 1e-10)
-                    powers.append(power)
-                powers = np.array(powers)
-                freqs = np.linspace(band.freq_start, band.freq_end, len(powers))
-            except Exception as e:
-                logger.error(f"HackRF-Scan fehlgeschlagen: {e}")
-                powers = np.random.normal(-60, 10, 256)
-                freqs = np.linspace(band.freq_start, band.freq_end, 256)
-        result = ScanResult(
-            band=band,
-            avg_power=np.mean(powers),
-            peak_power=np.max(powers),
-            noise_floor=np.min(powers),
-            signal_to_noise=np.max(powers) - np.min(powers),
-            active=True,
-            activity_percentage=100.0,
-            num_peaks=5,
-            scan_time=2.0,
-            frequencies=freqs,
-            power_values=powers
-        )
-        return result
 
 
 class FrequencyAnalyzer:

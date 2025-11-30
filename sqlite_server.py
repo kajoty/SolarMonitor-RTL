@@ -84,7 +84,7 @@ def write_data():
     {
         "timestamp": "2025-11-17T20:39:07Z",
         "band_name": "Solar Radio",
-        "receiver": "rtl" | "hackrf" (optional, default: "rtl"),
+        "receiver": "rtl" (optional, default: "rtl"),
         "data": [
             {"frequency": 20.0, "power": -45.3},
             {"frequency": 20.12, "power": -43.1},
@@ -136,7 +136,7 @@ def read_data():
     
     Parameter:
     - band_name: Band-Name (erforderlich)
-    - receiver: 'rtl' oder 'hackrf' (optional, default: alle)
+    - receiver: 'rtl' (optional, default: alle)
     - time_range: '1h', '6h', '24h', '7d', '30d' (Standard: '24h') ODER
     - start_time: ISO-8601 Timestamp (z.B. '2025-11-17T00:00:00')
     - end_time: ISO-8601 Timestamp (optional, default: jetzt)

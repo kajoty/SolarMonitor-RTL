@@ -25,7 +25,7 @@ load_dotenv()
 
 # Import der Module
 from heatmap_generator import create_heatmap_generator_from_env
-from frequency_scanner import create_scanner_from_env, FrequencyAnalyzer, RTLSDRScanner, HACKRF_AVAILABLE
+from frequency_scanner import create_scanner_from_env, FrequencyAnalyzer, RTLSDRScanner
 from spectrum_analyzer import SpectrumAnalyzer
 
 # Logging konfigurieren
@@ -39,7 +39,6 @@ CORS(app)
 # Globale Instanzen
 heatmap_gen = None
 rtl_scanner = None
-hackrf_scanner = None
 scan_results = None
 scan_in_progress = False
 scan_lock = threading.Lock()
@@ -115,32 +114,23 @@ def init_heatmap_generator():
 
 def init_scanner():
     """Initialisiert die verfügbaren Scanner beim Start"""
-    global rtl_scanner, hackrf_scanner
+    global rtl_scanner
     try:
         rtl_scanner = create_scanner_from_env()
         logger.info("✅ RTL-SDR Scanner initialisiert")
-        
-        # HackRF nur initialisieren wenn aktiviert
-        if os.getenv('HACKRF_ENABLED', 'false').lower() == 'true':
-            hackrf_scanner = HackRFScanner(use_mock=False)
-            logger.info("✅ HackRF Scanner initialisiert")
-        else:
-            hackrf_scanner = HackRFScanner(use_mock=True)
-            logger.info("ℹ️ HackRF Scanner im Mock-Modus (nicht aktiviert)")
             
     except Exception as e:
         logger.error(f"❌ Fehler bei Scanner-Initialisierung: {e}")
         rtl_scanner = None
-        hackrf_scanner = None
 
 
 @app.before_request
 def before_request():
     """Initialize generators on first request"""
-    global heatmap_gen, rtl_scanner, hackrf_scanner
+    global heatmap_gen, rtl_scanner
     if heatmap_gen is None:
         init_heatmap_generator()
-    if rtl_scanner is None or hackrf_scanner is None:
+    if rtl_scanner is None:
         init_scanner()
 
 
@@ -546,8 +536,6 @@ def health_check():
         scanners_status = []
         if rtl_scanner:
             scanners_status.append('rtl-sdr')
-        if hackrf_scanner:
-            scanners_status.append('hackrf')
         
         if scanners_status:
             health_status['scanners'] = scanners_status
@@ -609,13 +597,11 @@ def start_frequency_scan():
         ]
     }
     """
-    global scan_in_progress, scan_results, rtl_scanner, hackrf_scanner
+    global scan_in_progress, scan_results, rtl_scanner
     
     available_scanners = []
     if rtl_scanner:
         available_scanners.append('rtl')
-    if hackrf_scanner:
-        available_scanners.append('hackrf')
     
     if not available_scanners:
         return jsonify({
@@ -638,7 +624,7 @@ def start_frequency_scan():
     
     def run_scan():
         """Führe Scan im Background aus"""
-        global scan_results, scan_in_progress, rtl_scanner, hackrf_scanner
+        global scan_results, scan_in_progress, rtl_scanner
         
         try:
             logger.info("Starte Frequenzbereich-Scan mit allen verfügbaren Scannern...")
@@ -656,18 +642,6 @@ def start_frequency_scan():
                     write_scan_to_sqlite(rtl_results, receiver='rtl')
                     all_results.extend(rtl_results)
                     logger.info(f"✅ RTL-SDR: {len(rtl_results)} Bänder gescannt")
-            
-            # Scanne mit HackRF
-            if hackrf_scanner:
-                logger.info("📡 Manuell: Scanne mit HackRF...")
-                if quick_scan:
-                    hackrf_results = hackrf_scanner.find_active_bands()
-                else:
-                    hackrf_results = hackrf_scanner.scan_all_bands()
-                if hackrf_results:
-                    write_scan_to_sqlite(hackrf_results, receiver='hackrf')
-                    all_results.extend(hackrf_results)
-                    logger.info(f"✅ HackRF: {len(hackrf_results)} Bänder gescannt")
             
             if not all_results:
                 logger.warning("Keine Scans erfolgreich")
@@ -872,7 +846,7 @@ def get_monitored_bands():
 
 def run_automatic_scan():
     """Führe automatischen Scan mit beiden verfügbaren Scannern aus"""
-    global scan_in_progress, scan_results, rtl_scanner, hackrf_scanner
+    global scan_in_progress, scan_results, rtl_scanner
     
     # Verhindere parallele Scans
     with scan_lock:
@@ -902,19 +876,6 @@ def run_automatic_scan():
                 write_scan_to_sqlite(rtl_results, receiver='rtl')
                 all_results.extend(rtl_results)
         
-        # Scanne mit HackRF
-        if hackrf_scanner:
-            logger.info("📡 Scanne mit HackRF...")
-            hackrf_results = []
-            for band in monitored_bands:
-                result = hackrf_scanner.scan_band(band)
-                if result:
-                    hackrf_results.append(result)
-                    logger.info(f"✅ HackRF Scan für {band.name} abgeschlossen")
-            if hackrf_results:
-                write_scan_to_sqlite(hackrf_results, receiver='hackrf')
-                all_results.extend(hackrf_results)
-        
         if not all_results:
             logger.warning("Keine Scans erfolgreich - keine Daten gespeichert")
             return
@@ -930,7 +891,7 @@ def run_automatic_scan():
             'timestamp': datetime.now().isoformat()
         }
         
-        logger.info(f"✅ Automatischer Scan abgeschlossen: {len(all_results)} Bänder gescannt ({len(rtl_results) if rtl_scanner else 0} RTL, {len(hackrf_results) if hackrf_scanner else 0} HackRF)")
+        logger.info(f"✅ Automatischer Scan abgeschlossen: {len(all_results)} Bänder gescannt ({len(rtl_results) if rtl_scanner else 0} RTL)")
     
     except Exception as e:
         logger.error(f"❌ Fehler während automatischem Scan: {e}", exc_info=True)
@@ -989,7 +950,7 @@ if __name__ == '__main__':
         Gibt einen Plot des durchschnittlichen Spektralpegels (dB) für einen Zeitraum zurück.
         Query-Parameter:
           - time_range: '1h', '6h', '24h' (Standard: '1h')
-          - receiver: 'rtl', 'hackrf', oder None für alle (Standard: None)
+          - receiver: 'rtl' oder None für alle (Standard: None)
         """
         try:
             time_range = request.args.get('time_range', '24h')

@@ -67,7 +67,7 @@ class FFTHeatmapGenerator:
             freq_end: Endfrequenz in MHz (optional)
             start_time: ISO-8601 Start-Timestamp (optional, überschreibt time_range)
             end_time: ISO-8601 End-Timestamp (optional)
-            receiver: 'rtl' oder 'hackrf' (optional, default: alle)
+            receiver: 'rtl' (optional, default: alle)
             exclude_last_scans: Anzahl der neuesten Scans auszuschließen (default: 2)
             
         Returns:
@@ -378,7 +378,7 @@ class FFTHeatmapGenerator:
             freq_end: Endfrequenz
             start_time: ISO-8601 Start-Timestamp (optional, überschreibt time_range)
             end_time: ISO-8601 End-Timestamp (optional)
-            receiver: 'rtl' oder 'hackrf' (optional, default: alle)
+            receiver: 'rtl' (optional, default: alle)
             title: Grafik-Titel
             cmap: Colormap
             exclude_last_scans: Anzahl der neuesten Scans auszuschließen (default: 2)
