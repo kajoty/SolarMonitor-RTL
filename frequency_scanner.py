@@ -83,8 +83,8 @@ class RTLSDRScanner:
     # Solar Radio Astronomy - Meterwellen für Type II/III Solar Bursts
     # RTL2838 Tuner Frequenzbereich: 24-1766 MHz (praktisch: 50-1500 MHz)
     COMMON_BANDS = [
-        # Index 0 - Radio Jove / Meterwellen (20-80 MHz)
-        FrequencyBand("Solar Radio (20-80 MHz)", 20.0, 80.0, "Type II/III Solar Bursts & Radioastronomie"),
+        # Index 0 - Radio Jove / Meterwellen (24-80 MHz) - angepasst an RTL-SDR Grenze
+        FrequencyBand("Solar Radio (24-80 MHz)", 24.0, 80.0, "Type II/III Solar Bursts & Radioastronomie"),
     ]
     
     def __init__(self, rtl_device_index: int = 0, sample_rate: int = 2000000, 

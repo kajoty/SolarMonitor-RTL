@@ -441,68 +441,7 @@
             <p>SolarMonitor-RTL v1.0 | RTL-SDR Frequency Monitoring System</p>
             <p>Raspberry Pi 4B + RTL2838 USB Dongle | SQLite Time-Series Database</p>
         </div>
-    </div>
-
-        // Geräteauswahl für Durchschnittspegel
-        document.getElementById('receiverSelect').addEventListener('change', () => {
-            generateAvgPowerPlot();
-        });
-        
-        // Band-Heatmap generieren triggert auch Durchschnittspegel
-        generateBandBtn.addEventListener('click', () => {
-            generateAvgPowerPlot();
-        });
-        
-        // Initial beim Laden
-        document.addEventListener('DOMContentLoaded', () => {
-            generateAvgPowerPlot();
-        });
-        
-        async function generateAvgPowerPlot() {
-            const receiver = document.getElementById('receiverSelect').value;
-            const timeRange = bandTimeRangeSelect.value;
-            
-            const params = new URLSearchParams({
-                time_range: timeRange,
-                receiver: receiver
-            });
-            
-            const avgPowerContainer = document.getElementById('avgPowerContainer');
-            avgPowerContainer.innerHTML = `
-                <div class="loading">
-                    <div class="spinner"></div>
-                    <p>Berechne Durchschnittspegel...</p>
-                </div>
-            `;
-            
-            try {
-                const response = await fetch(`${API_BASE}/avgpower?${params}`);
-                const data = await response.json();
-                
-                if (data.status === 'success' && data.image) {
-                    const img = document.createElement('img');
-                    img.src = `data:image/png;base64,${data.image}`;
-                    img.className = 'heatmap-image';
-                    img.alt = 'Durchschnittlicher Spektralpegel';
-                    avgPowerContainer.innerHTML = '';
-                    avgPowerContainer.appendChild(img);
-                } else {
-                    avgPowerContainer.innerHTML = `
-                        <div class="error show">
-                            ${data.message || 'Fehler beim Abrufen des Durchschnittspegels.'}
-                        </div>
-                    `;
-                }
-            } catch (error) {
-                avgPowerContainer.innerHTML = `
-                    <div class="error show">
-                        ${error.message}
-                    </div>
-                `;
-            }
-        }
-
-    <script>
+    </div>    <script>
         // Configuration
         const API_BASE = '/api';
         let currentBandImageData = null;
@@ -554,8 +493,18 @@
         document.addEventListener('DOMContentLoaded', () => {
             checkHealth();
             loadBands();
+            generateAvgPowerPlot();  // Initial Durchschnittspegel laden
             // Aktualisiere Health-Status alle 30 Sekunden
             setInterval(checkHealth, 30000);
+        });
+
+        // Event-Listener für Durchschnittspegel
+        document.getElementById('receiverSelect').addEventListener('change', () => {
+            generateAvgPowerPlot();
+        });
+        
+        generateBandBtn.addEventListener('click', () => {
+            generateAvgPowerPlot();
         });
 
         /**
@@ -644,6 +593,9 @@
                             option.selected = true;
                         }
                     });
+                    
+                    // Automatisch erste Heatmap generieren
+                    setTimeout(() => generateBandHeatmap(), 500);
                 }
             } catch (error) {
                 console.error('Fehler beim Laden der Bänder:', error);
@@ -668,6 +620,7 @@
 
         async function generateBandHeatmap() {
             const bandName = bandSelectInput.value;
+            const timeRange = bandTimeRangeSelect.value;
 
             if (!bandName) {
                 showError('Bitte wählen Sie ein Frequenzband aus');
@@ -679,9 +632,44 @@
 
             try {
                 const receiver = document.getElementById('receiverSelect').value;
+                
+                // Spezielle Behandlung für 24h-Heatmaps: Prüfe zuerst gespeicherte Version
+                if (timeRange === '24h') {
+                    try {
+                        const storedResponse = await fetch(`${API_BASE}/heatmap/stored`);
+                        const storedData = await storedResponse.json();
+                        
+                        if (storedData.status === 'success' && storedData.stored) {
+                            // Gespeicherte Heatmap gefunden - verwende diese
+                            currentBandImageData = storedData.data;
+                            displayHeatmap({
+                                status: 'success',
+                                data: storedData.data,
+                                band_name: bandName,
+                                time_range: '24h',
+                                cmap: bandColormapSelect.value,
+                                stored: true,
+                                date: storedData.date
+                            });
+                            updateBandInfo({
+                                band_name: bandName,
+                                time_range: '24h',
+                                cmap: bandColormapSelect.value,
+                                timestamp: storedData.timestamp,
+                                stored: true,
+                                date: storedData.date
+                            });
+                            return;
+                        }
+                    } catch (storedError) {
+                        console.log('Keine gespeicherte 24h-Heatmap gefunden, generiere neue:', storedError);
+                    }
+                }
+                
+                // Normale Generierung (oder Fallback für 24h wenn gespeicherte nicht verfügbar)
                 const params = new URLSearchParams({
                     band_name: bandName,
-                    time_range: bandTimeRangeSelect.value,
+                    time_range: timeRange,
                     cmap: bandColormapSelect.value,
                     format: 'json',
                     receiver: receiver
@@ -734,10 +722,65 @@
          * Aktualisiere Info-Text für Band-Heatmap
          */
         function updateBandInfo(data) {
-            let infoStr = `✅ Band-Heatmap generiert für <strong>${data.band_name}</strong> (${data.freq_start}-${data.freq_end} MHz)`;
+            let infoStr = `✅ Band-Heatmap generiert für <strong>${data.band_name}</strong>`;
+            if (data.freq_start && data.freq_end) {
+                infoStr += ` (${data.freq_start}-${data.freq_end} MHz)`;
+            }
             infoStr += ` | Zeitraum: <strong>${data.time_range === '1h' ? '1 Stunde' : data.time_range === '6h' ? '6 Stunden' : '24 Stunden'}</strong>`;
-            infoStr += ` | Farbschema: <strong>${data.cmap}</strong> | Zeit: <strong>${new Date(data.timestamp).toLocaleString('de-DE')}</strong>`;
+            infoStr += ` | Farbschema: <strong>${data.cmap}</strong>`;
+            if (data.stored) {
+                infoStr += ` | <span style="color: #28a745;">📁 Gespeicherte Heatmap vom ${data.date}</span>`;
+            } else {
+                infoStr += ` | Zeit: <strong>${new Date(data.timestamp).toLocaleString('de-DE')}</strong>`;
+            }
             infoText.innerHTML = infoStr;
+        }
+
+        /**
+         * Durchschnittspegel-Plot generieren
+         */
+        async function generateAvgPowerPlot() {
+            const receiver = document.getElementById('receiverSelect').value;
+            const timeRange = bandTimeRangeSelect.value;
+            
+            const params = new URLSearchParams({
+                time_range: timeRange,
+                receiver: receiver
+            });
+            
+            const avgPowerContainer = document.getElementById('avgPowerContainer');
+            avgPowerContainer.innerHTML = `
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>Berechne Durchschnittspegel...</p>
+                </div>
+            `;
+            
+            try {
+                const response = await fetch(`${API_BASE}/avgpower?${params}`);
+                const data = await response.json();
+                
+                if (data.status === 'success' && data.image) {
+                    const img = document.createElement('img');
+                    img.src = `data:image/png;base64,${data.image}`;
+                    img.className = 'heatmap-image';
+                    img.alt = 'Durchschnittlicher Spektralpegel';
+                    avgPowerContainer.innerHTML = '';
+                    avgPowerContainer.appendChild(img);
+                } else {
+                    avgPowerContainer.innerHTML = `
+                        <div class="error show">
+                            ${data.message || 'Fehler beim Abrufen des Durchschnittspegels.'}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                avgPowerContainer.innerHTML = `
+                    <div class="error show">
+                        ${error.message}
+                    </div>
+                `;
+            }
         }
     </script>
 </body>

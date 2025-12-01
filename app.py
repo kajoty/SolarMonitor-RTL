@@ -16,6 +16,9 @@ import io
 import threading
 import requests
 import numpy as np
+import matplotlib.pyplot as plt
+import base64
+from heatmap_generator import FFTHeatmapGenerator
 
 # SQLite REST API server
 SQLITE_REST_URL = "http://localhost:8002"
@@ -288,7 +291,7 @@ def get_heatmap():
         import os, json
         COUNTER_FILE = '/tmp/heatmap_24h_counter.json'
         if time_range_param == '24h' and heatmap_base64 is not None:
-            # Zähler aus Datei lesen
+            # Zähler aus Datei lesen (für zukünftige Erweiterungen)
             try:
                 if os.path.exists(COUNTER_FILE):
                     with open(COUNTER_FILE, 'r') as f:
@@ -305,23 +308,7 @@ def get_heatmap():
                     json.dump({'count': count}, f)
             except Exception:
                 pass
-            # Wenn 3 erreicht: Datenbank löschen und Zähler zurücksetzen
-            if count >= 3:
-                try:
-                    # SQLite REST API: alle Daten löschen
-                    resp = requests.post('http://localhost:8002/api/delete', json={'days': 0}, timeout=30)
-                    if resp.status_code == 200:
-                        logger.info('Automatisches Löschen: Alle Datenbankeinträge wurden nach 3x 24h-Heatmap entfernt.')
-                    else:
-                        logger.warning(f'Automatisches Löschen fehlgeschlagen: {resp.text}')
-                except Exception as e:
-                    logger.error(f'Fehler beim automatischen Löschen: {e}')
-                # Zähler zurücksetzen
-                try:
-                    with open(COUNTER_FILE, 'w') as f:
-                        json.dump({'count': 0}, f)
-                except Exception:
-                    pass
+            # Automatisches Löschen entfernt - stattdessen tägliche Archivierung
         
         if heatmap_base64 is None:
             return jsonify({
@@ -456,6 +443,159 @@ def get_band_heatmap():
     
     except Exception as e:
         logger.error(f"Fehler im /api/heatmap/band Endpoint: {e}", exc_info=True)
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+
+@app.route('/api/heatmap/stored', methods=['GET'])
+def get_stored_heatmap():
+    """
+    Gibt eine gespeicherte 24h-Heatmap zurück, falls vorhanden
+    
+    Query Parameter:
+    - date: Datum im Format YYYY-MM-DD (default: gestern)
+    
+    Response:
+    - JSON mit gespeicherter Heatmap oder Fehlermeldung
+    """
+    try:
+        date_str = request.args.get('date')
+        if not date_str:
+            # Default: gestern
+            yesterday = datetime.now() - timedelta(days=1)
+            date_str = yesterday.strftime('%Y-%m-%d')
+        
+        # Prüfe, ob gespeicherte Heatmap existiert
+        heatmap_dir = os.path.join('heatmaps', date_str)
+        heatmap_file = os.path.join(heatmap_dir, '24h_heatmap.png')
+        
+        if os.path.exists(heatmap_file):
+            # Lade gespeicherte Heatmap
+            with open(heatmap_file, 'rb') as f:
+                image_data = f.read()
+            
+            import base64
+            heatmap_base64 = base64.b64encode(image_data).decode('utf-8')
+            
+            # Lade Metadaten
+            metadata_file = os.path.join(heatmap_dir, 'metadata.json')
+            metadata = {}
+            if os.path.exists(metadata_file):
+                import json
+                with open(metadata_file, 'r') as f:
+                    metadata = json.load(f)
+            
+            return jsonify({
+                'status': 'success',
+                'stored': True,
+                'date': date_str,
+                'data': heatmap_base64,
+                'metadata': metadata,
+                'timestamp': datetime.now().isoformat()
+            })
+        else:
+            return jsonify({
+                'status': 'not_found',
+                'stored': False,
+                'date': date_str,
+                'message': f'Keine gespeicherte 24h-Heatmap für {date_str} gefunden'
+            }), 404
+            
+    except Exception as e:
+        logger.error(f"Fehler im /api/heatmap/stored Endpoint: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+
+@app.route('/api/heatmap/list-stored', methods=['GET'])
+def list_stored_heatmaps():
+    """
+    Gibt eine Liste aller gespeicherten Heatmaps zurück
+    
+    Response:
+    - JSON mit Liste der verfügbaren gespeicherten Heatmaps
+    """
+    try:
+        heatmap_dir = 'heatmaps'
+        if not os.path.exists(heatmap_dir):
+            return jsonify({
+                'status': 'success',
+                'heatmaps': []
+            })
+        
+        stored_heatmaps = []
+        
+        # Durchsuche alle Datum-Verzeichnisse
+        for date_dir in sorted(os.listdir(heatmap_dir)):
+            date_path = os.path.join(heatmap_dir, date_dir)
+            if not os.path.isdir(date_path):
+                continue
+            
+        # Suche nach PNG-Dateien und ihren Metadaten
+            for filename in os.listdir(date_path):
+                if filename.endswith('.png') and ('24h_heatmap' in filename or filename == '24h_heatmap.png'):
+                    try:
+                        # Versuche Metadaten-Datei zu finden
+                        metadata_filename = filename.replace('.png', '_metadata.json')
+                        metadata_path = os.path.join(date_path, metadata_filename)
+                        
+                        metadata = {}
+                        if os.path.exists(metadata_path):
+                            with open(metadata_path, 'r') as f:
+                                metadata = json.load(f)
+                        else:
+                            # Fallback: Erstelle Metadaten aus Dateiname
+                            if 'solar_radio' in filename:
+                                metadata = {
+                                    'band_name': 'Solar Radio',
+                                    'freq_start': 24,
+                                    'freq_end': 80
+                                }
+                            elif 'vhf_low' in filename:
+                                metadata = {
+                                    'band_name': 'VHF Low',
+                                    'freq_start': 54,
+                                    'freq_end': 88
+                                }
+                            elif filename == '24h_heatmap.png':
+                                metadata = {
+                                    'band_name': 'Alle Bänder',
+                                    'freq_start': None,
+                                    'freq_end': None
+                                }
+                            metadata.update({
+                                'date': date_dir,
+                                'filepath': os.path.join(date_path, filename),
+                                'generated_at': datetime.fromtimestamp(os.path.getmtime(os.path.join(date_path, filename))).isoformat()
+                            })
+                        
+                        stored_heatmaps.append({
+                            'date': metadata.get('date', date_dir),
+                            'band_name': metadata.get('band_name', 'Unbekannt'),
+                            'freq_start': metadata.get('freq_start'),
+                            'freq_end': metadata.get('freq_end'),
+                            'filepath': metadata.get('filepath', os.path.join(date_path, filename)),
+                            'generated_at': metadata.get('generated_at'),
+                            'file_size': os.path.getsize(os.path.join(date_path, filename))
+                        })
+                    except Exception as e:
+                        logger.warning(f"Fehler beim Verarbeiten von {filename}: {e}")
+        
+        # Sortiere nach Datum und Band
+        stored_heatmaps.sort(key=lambda x: (x['date'], x['band_name']))
+        
+        return jsonify({
+            'status': 'success',
+            'heatmaps': stored_heatmaps,
+            'total': len(stored_heatmaps)
+        })
+        
+    except Exception as e:
+        logger.error(f"Fehler im /api/heatmap/list-stored Endpoint: {e}")
         return jsonify({
             'status': 'error',
             'message': str(e)
@@ -923,8 +1063,20 @@ def init_scheduler():
             max_instances=1
         )
         
+        # Täglicher Job für 24h-Heatmap-Archivierung (um 00:05 Uhr)
+        scheduler.add_job(
+            save_daily_24h_heatmap,
+            'cron',
+            hour=0,
+            minute=5,
+            id='daily_24h_heatmap',
+            name='Tägliche 24h-Heatmap-Archivierung',
+            replace_existing=True
+        )
+        
         scheduler.start()
         logger.info(f"✅ Scheduler gestartet - Scans alle {scan_interval_minutes:.1f} Minuten")
+        logger.info("✅ Täglicher 24h-Heatmap-Job um 00:05 Uhr hinzugefügt")
         
         # Starte sofort ersten Scan
         logger.info("Starte initialen Scan...")
@@ -934,6 +1086,73 @@ def init_scheduler():
     except Exception as e:
         logger.error(f"Fehler beim Starten des Schedulers: {e}")
         return None
+
+
+def save_daily_24h_heatmap():
+    """Speichert täglich die 24h-Heatmap als PNG-Datei"""
+    global heatmap_gen
+    if heatmap_gen is None:
+        init_heatmap_generator()
+        if heatmap_gen is None:
+            logger.error("Konnte Heatmap-Generator nicht initialisieren")
+            return
+        
+    try:
+        # Erstelle Verzeichnis für gespeicherte Heatmaps
+        heatmap_dir = 'heatmaps'
+        if not os.path.exists(heatmap_dir):
+            os.makedirs(heatmap_dir)
+        
+        # Berechne gestern (vollständiger Tag)
+        yesterday = datetime.now() - timedelta(days=1)
+        date_str = yesterday.strftime('%Y-%m-%d')
+        
+        # Erstelle Unterverzeichnis für das Datum
+        date_dir = os.path.join(heatmap_dir, date_str)
+        if not os.path.exists(date_dir):
+            os.makedirs(date_dir)
+        
+        # Generiere 24h-Heatmap für gestern
+        start_time = yesterday.strftime('%Y-%m-%dT00:00:00')
+        end_time = yesterday.strftime('%Y-%m-%dT23:59:59')
+        
+        heatmap_base64 = heatmap_gen.get_heatmap_data(
+            start_time=start_time,
+            end_time=end_time,
+            title=f"24h FFT Spektrum Heatmap - {date_str}",
+            cmap='viridis'
+        )
+        
+        if heatmap_base64:
+            # Dekodiere Base64 und speichere als PNG
+            import base64
+            image_data = base64.b64decode(heatmap_base64)
+            filepath = os.path.join(date_dir, '24h_heatmap.png')
+            
+            with open(filepath, 'wb') as f:
+                f.write(image_data)
+            
+            logger.info(f"✅ Tägliche 24h-Heatmap gespeichert: {filepath}")
+            
+            # Speichere auch Metadaten
+            metadata = {
+                'date': date_str,
+                'start_time': start_time,
+                'end_time': end_time,
+                'cmap': 'viridis',
+                'generated_at': datetime.now().isoformat(),
+                'filepath': filepath
+            }
+            
+            import json
+            metadata_file = os.path.join(date_dir, 'metadata.json')
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f, indent=2)
+        else:
+            logger.warning(f"❌ Konnte keine 24h-Heatmap für {date_str} generieren")
+            
+    except Exception as e:
+        logger.error(f"Fehler beim Speichern der täglichen 24h-Heatmap: {e}")
 
 
 if __name__ == '__main__':

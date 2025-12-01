@@ -5,11 +5,11 @@
 ![RTL-SDR](https://img.shields.io/badge/RTL--SDR-RTL2838-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-RTL-SDR frequency monitoring system for Raspberry Pi. Captures radio frequency spectrum in the 20-80 MHz band using an RTL2838 DVB-T USB dongle, stores data in SQLite, and provides visualization via REST API and web interface.
+RTL-SDR frequency monitoring system for Raspberry Pi. Captures radio frequency spectrum in the 24-80 MHz band using an RTL2838 DVB-T USB dongle, stores data in SQLite, and provides visualization via REST API and web interface.
 
 ## System Overview
 
-Continuous spectrum monitoring using RTL-SDR hardware on Raspberry Pi 4B. Frequency range: 20-80 MHz (solar radio band). Data stored in local SQLite database with REST API access. Web dashboards for visualization and analysis.
+Continuous spectrum monitoring using RTL-SDR hardware on Raspberry Pi 4B. Frequency range: 24-80 MHz (solar radio band). Data stored in local SQLite database with REST API access. Web dashboards for visualization and analysis.
 
 ## Hardware
 
@@ -182,6 +182,17 @@ sudo journalctl -u solarmonitor-app.service -n 50
 **RTL-SDR device busy:**
 ```bash
 ps aux | grep python3
+sudo systemctl restart solarmonitor-app.service
+```
+
+**RTL-SDR Access Denied (Permission Error):**
+```bash
+# Check if device is detected
+lsusb | grep -i realtek
+# Should show: ID 0bda:2838
+
+# If device is detected but logs show "usb_open error -3" or "Access denied":
+sudo udevadm control --reload-rules && sudo udevadm trigger
 sudo systemctl restart solarmonitor-app.service
 ```
 
