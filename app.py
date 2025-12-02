@@ -30,6 +30,7 @@ load_dotenv()
 from heatmap_generator import create_heatmap_generator_from_env
 from frequency_scanner import create_scanner_from_env, FrequencyAnalyzer, RTLSDRScanner
 from spectrum_analyzer import SpectrumAnalyzer
+from snr_analyzer import create_snr_analyzer_from_env
 
 # Logging konfigurieren
 logging.basicConfig(level=logging.INFO)
@@ -42,6 +43,7 @@ CORS(app)
 # Globale Instanzen
 heatmap_gen = None
 rtl_scanner = None
+snr_analyzer = None
 scan_results = None
 scan_in_progress = False
 scan_lock = threading.Lock()
@@ -113,6 +115,16 @@ def init_heatmap_generator():
         logger.info("Heatmap-Generator erfolgreich initialisiert")
     except Exception as e:
         logger.error(f"Fehler bei Initialisierung des Heatmap-Generators: {e}")
+
+
+def init_snr_analyzer():
+    """Initialisiert den SNR-Analyzer beim Start"""
+    global snr_analyzer
+    try:
+        snr_analyzer = create_snr_analyzer_from_env()
+        logger.info("SNR-Analyzer erfolgreich initialisiert")
+    except Exception as e:
+        logger.error(f"Fehler bei Initialisierung des SNR-Analyzers: {e}")
 
 
 def init_scanner():
@@ -373,6 +385,7 @@ def get_band_heatmap():
         time_range = request.args.get('time_range', '24h')
         cmap = request.args.get('cmap', 'viridis')
         response_format = request.args.get('format', 'json')
+        date = request.args.get('date')
         
         if not band_name:
             return jsonify({
@@ -403,12 +416,42 @@ def get_band_heatmap():
                 'message': f'Ungültiger Zeitraum. Erlaubt: {valid_ranges}'
             }), 400
         
+        # Verarbeite Datum-Parameter falls vorhanden
+        start_time = None
+        end_time = None
+        if date:
+            try:
+                selected_date = datetime.fromisoformat(date)
+                
+                # Berechne Endzeit basierend auf time_range
+                if time_range == '1h':
+                    end_time = selected_date + timedelta(hours=1)
+                elif time_range == '6h':
+                    end_time = selected_date + timedelta(hours=6)
+                elif time_range == '24h':
+                    end_time = selected_date + timedelta(days=1)
+                elif time_range == '7d':
+                    end_time = selected_date + timedelta(days=7)
+                elif time_range == '30d':
+                    end_time = selected_date + timedelta(days=30)
+                
+                start_time = selected_date.isoformat()
+                end_time = end_time.isoformat()
+                
+            except ValueError as e:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Ungültiges Datum-Format: {date}'
+                }), 400
+        
         # Heatmap generieren
         heatmap_base64 = heatmap_gen.get_heatmap_data(
-            time_range=time_range,
+            time_range=time_range if not date else None,
             band_name=band_name,
             freq_start=freq_start,
             freq_end=freq_end,
+            start_time=start_time,
+            end_time=end_time,
             cmap=cmap
         )
         
@@ -1157,6 +1200,7 @@ def save_daily_24h_heatmap():
 
 if __name__ == '__main__':
     init_heatmap_generator()
+    init_snr_analyzer()
     init_scanner()
     scheduler = init_scheduler()
     
@@ -1174,10 +1218,41 @@ if __name__ == '__main__':
         try:
             time_range = request.args.get('time_range', '24h')
             receiver = request.args.get('receiver', None)
+            date = request.args.get('date')
+            
+            # Verarbeite Datum-Parameter falls vorhanden
+            start_time = None
+            end_time = None
+            if date:
+                try:
+                    selected_date = datetime.fromisoformat(date)
+                    
+                    # Berechne Endzeit basierend auf time_range
+                    if time_range == '1h':
+                        end_time = selected_date + timedelta(hours=1)
+                    elif time_range == '6h':
+                        end_time = selected_date + timedelta(hours=6)
+                    elif time_range == '24h':
+                        end_time = selected_date + timedelta(days=1)
+                    elif time_range == '7d':
+                        end_time = selected_date + timedelta(days=7)
+                    elif time_range == '30d':
+                        end_time = selected_date + timedelta(days=30)
+                    
+                    start_time = selected_date.isoformat()
+                    end_time = end_time.isoformat()
+                    
+                except ValueError as e:
+                    return jsonify({
+                        'status': 'error',
+                        'message': f'Ungültiges Datum-Format: {date}'
+                    }), 400
             
             # Hole historische Daten aus der Datenbank via Heatmap-Generator
             spektrum_data, timestamps, frequencies = heatmap_gen.get_frequency_data(
-                time_range=time_range, 
+                time_range=time_range if not date else None,
+                start_time=start_time,
+                end_time=end_time,
                 receiver=receiver
             )
             
@@ -1228,6 +1303,124 @@ if __name__ == '__main__':
             return jsonify({
                 "status": "error", 
                 "message": f"Interner Fehler: {str(e)}"
+            }), 500
+    
+    # =============================================================
+    # SNR Analyse API
+    # =============================================================
+    
+    @app.route('/api/snr/temporal', methods=['GET'])
+    def get_temporal_snr():
+        """
+        API für zeitliche SNR-Entwicklung
+        
+        Query Parameter:
+        - days: Anzahl der Tage für Analyse (default: 1)
+        """
+        try:
+            global snr_analyzer
+            if snr_analyzer is None:
+                init_snr_analyzer()
+                if snr_analyzer is None:
+                    return jsonify({'error': 'SNR-Analyzer konnte nicht initialisiert werden'}), 500
+            
+            days = int(request.args.get('days', 1))
+            result = snr_analyzer.analyze_temporal_snr(days=days)
+            
+            if 'error' in result:
+                return jsonify(result), 404
+            
+            return jsonify({
+                'status': 'success',
+                'data': result,
+                'analysis_type': 'temporal_snr',
+                'days_analyzed': days,
+                'timestamp': datetime.now().isoformat()
+            })
+            
+        except Exception as e:
+            logger.error(f"Fehler in /api/snr/temporal: {e}")
+            return jsonify({
+                'status': 'error',
+                'message': str(e)
+            }), 500
+    
+    
+    @app.route('/api/snr/frequency', methods=['GET'])
+    def get_frequency_snr():
+        """
+        API für frequenzabhängige SNR-Analyse
+        
+        Query Parameter:
+        - days: Anzahl der Tage für Analyse (default: 1)
+        """
+        try:
+            global snr_analyzer
+            if snr_analyzer is None:
+                init_snr_analyzer()
+                if snr_analyzer is None:
+                    return jsonify({'error': 'SNR-Analyzer konnte nicht initialisiert werden'}), 500
+            
+            days = int(request.args.get('days', 1))
+            result = snr_analyzer.analyze_frequency_snr(days=days)
+            
+            if 'error' in result:
+                return jsonify(result), 404
+            
+            return jsonify({
+                'status': 'success',
+                'data': result,
+                'analysis_type': 'frequency_snr',
+                'days_analyzed': days,
+                'timestamp': datetime.now().isoformat()
+            })
+            
+        except Exception as e:
+            logger.error(f"Fehler in /api/snr/frequency: {e}")
+            return jsonify({
+                'status': 'error',
+                'message': str(e)
+            }), 500
+    
+    
+    @app.route('/api/snr/quality', methods=['GET'])
+    def get_data_quality():
+        """
+        API für Datenqualitätsbewertung
+        
+        Query Parameter:
+        - days: Anzahl der Tage für Analyse (default: 1)
+        - snr_threshold: SNR-Schwellenwert in dB (default: 3.0)
+        """
+        try:
+            global snr_analyzer
+            if snr_analyzer is None:
+                init_snr_analyzer()
+                if snr_analyzer is None:
+                    return jsonify({'error': 'SNR-Analyzer konnte nicht initialisiert werden'}), 500
+            
+            days = int(request.args.get('days', 1))
+            snr_threshold = float(request.args.get('snr_threshold', 3.0))
+            
+            result = snr_analyzer.analyze_data_quality(days=days, snr_threshold=snr_threshold)
+            
+            if 'error' in result:
+                return jsonify(result), 404
+            
+            return jsonify({
+                'status': 'success',
+                'data': result,
+                'analysis_type': 'data_quality',
+                'days_analyzed': days,
+                'snr_threshold': snr_threshold,
+                'timestamp': datetime.now().isoformat()
+            })
+            
+        except Exception as e:
+            logger.error(f"Fehler in /api/snr/quality: {e}")
+            return jsonify({
+                'status': 'error',
+                'message': str(e)
             }), 500
     
     # Starte Flask App
