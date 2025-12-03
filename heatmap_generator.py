@@ -221,14 +221,23 @@ class FFTHeatmapGenerator:
             logger.warning("Leere Spektraldaten - kann Heatmap nicht generieren")
             return None
         
-        # AUTO-SCALING: Höhe basierend auf Anzahl der Scans berechnen
-        # Kompaktere Höhe: 0.15 Zoll pro Scan (kompakter), minimum 5 Zoll, maximum 18 Zoll
+        # AUTO-SCALING: Höhe basierend auf Anzahl der Scans UND Frequenzpunkte berechnen
+        # Höhe: 0.15 Zoll pro Scan, aber mindestens 18 Zoll für hochauflösende Daten (HackRF)
         if figsize is None:
             n_scans = len(timestamps)
-            # Zielformel: 0.15 Zoll pro Scan (deutlich kompakter als vorher)
-            # Minimum 5 Zoll für lesbare kleine Heatmaps
-            # Maximum 18 Zoll um Memory-Probleme zu vermeiden
-            target_height = min(18, max(5, 0.15 * n_scans + 1.5))
+            n_freqs = len(frequencies)
+            
+            # Basisformel: 0.15 Zoll pro Scan
+            base_height = 0.15 * n_scans + 1.5
+            
+            # Für viele Frequenzpunkte (>2000, typisch HackRF): Mindesthöhe 18 Zoll
+            if n_freqs > 2000:
+                target_height = max(18, base_height)
+                target_height = min(30, target_height)  # Maximum 30 Zoll für HackRF
+            else:
+                # RTL-SDR oder wenig Daten: Maximum 18 Zoll
+                target_height = min(18, max(5, base_height))
+            
             figsize = (16, target_height)
             
             # Wenn wir zu viele Scans haben, warne den User

@@ -18,6 +18,7 @@ import requests
 import numpy as np
 import matplotlib.pyplot as plt
 import base64
+import subprocess
 from heatmap_generator import FFTHeatmapGenerator
 
 # SQLite REST API server
@@ -386,6 +387,7 @@ def get_band_heatmap():
         cmap = request.args.get('cmap', 'viridis')
         response_format = request.args.get('format', 'json')
         date = request.args.get('date')
+        receiver = request.args.get('receiver')
         
         if not band_name:
             return jsonify({
@@ -452,6 +454,7 @@ def get_band_heatmap():
             freq_end=freq_end,
             start_time=start_time,
             end_time=end_time,
+            receiver=receiver,
             cmap=cmap
         )
         
@@ -505,6 +508,7 @@ def get_stored_heatmap():
     """
     try:
         date_str = request.args.get('date')
+        receiver = request.args.get('receiver', 'rtl')
         if not date_str:
             # Default: gestern
             yesterday = datetime.now() - timedelta(days=1)
@@ -512,7 +516,7 @@ def get_stored_heatmap():
         
         # Prüfe, ob gespeicherte Heatmap existiert
         heatmap_dir = os.path.join('heatmaps', date_str)
-        heatmap_file = os.path.join(heatmap_dir, '24h_heatmap.png')
+        heatmap_file = os.path.join(heatmap_dir, f'24h_heatmap_{receiver}.png') if receiver != 'rtl' else os.path.join(heatmap_dir, '24h_heatmap.png')
         
         if os.path.exists(heatmap_file):
             # Lade gespeicherte Heatmap
@@ -1058,6 +1062,21 @@ def run_automatic_scan():
             if rtl_results:
                 write_scan_to_sqlite(rtl_results, receiver='rtl')
                 all_results.extend(rtl_results)
+        
+        # Scanne mit HackRF
+        logger.info("📡 Scanne mit HackRF...")
+        try:
+            result = subprocess.run(
+                ['python3', 'hackrf_scanner.py'],
+                capture_output=True,
+                cwd=os.path.dirname(os.path.abspath(__file__))
+            )
+            if result.returncode == 0:
+                logger.info("✅ HackRF Scan abgeschlossen")
+            else:
+                logger.error(f"❌ HackRF Scan fehlgeschlagen: {result.stderr.decode()}")
+        except Exception as e:
+            logger.error(f"❌ HackRF Scan Fehler: {e}")
         
         if not all_results:
             logger.warning("Keine Scans erfolgreich - keine Daten gespeichert")

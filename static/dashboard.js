@@ -199,7 +199,7 @@ const presetButtons = document.querySelectorAll('.preset-btn');
                 // Spezielle Behandlung für 24h-Heatmaps: Prüfe zuerst gespeicherte Version
                 if (timeRange === '24h') {
                     try {
-                        const storedResponse = await fetch(`${API_BASE}/heatmap/stored`);
+                        const storedResponse = await fetch(`${API_BASE}/heatmap/stored?receiver=${receiver}`);
                         const storedData = await storedResponse.json();
                         
                         if (storedData.status === 'success' && storedData.stored) {
