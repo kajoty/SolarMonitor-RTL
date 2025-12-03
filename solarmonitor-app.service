@@ -7,7 +7,7 @@ Wants=solarmonitor-sqlite.service
 Type=simple
 User=pi
 WorkingDirectory=/home/pi/Projekte/scanner/SolarMonitor-RTL
-Environment="PATH=/home/pi/Projekte/scanner/SolarMonitor-RTL/venv/bin"
+Environment="PATH=/home/pi/Projekte/scanner/SolarMonitor-RTL/venv/bin:/usr/bin:/bin"
 ExecStart=/home/pi/Projekte/scanner/SolarMonitor-RTL/venv/bin/python3 app.py
 Restart=on-failure
 RestartSec=10

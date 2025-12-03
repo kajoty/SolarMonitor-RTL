@@ -92,7 +92,7 @@ def capture_iq_data(center_freq_hz: int, sample_rate: int, num_samples: int,
     try:
         # HackRF Transfer Befehl
         cmd = [
-            'sudo', 'hackrf_transfer',
+            '/usr/bin/sudo', 'hackrf_transfer',
             '-r', tmp_path,
             '-f', str(center_freq_hz),
             '-s', str(sample_rate),

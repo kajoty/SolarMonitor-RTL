@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from apscheduler.schedulers.background import BackgroundScheduler
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import io
 import threading
 import requests
@@ -27,15 +27,15 @@ SQLITE_REST_URL = "http://localhost:8002"
 # Lade Umgebungsvariablen
 load_dotenv()
 
+# Logging konfigurieren
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Import der Module
 from heatmap_generator import create_heatmap_generator_from_env
 from frequency_scanner import create_scanner_from_env, FrequencyAnalyzer, RTLSDRScanner
 from spectrum_analyzer import SpectrumAnalyzer
 from snr_analyzer import create_snr_analyzer_from_env
-
-# Logging konfigurieren
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Flask App initialisieren
 app = Flask(__name__)
@@ -297,6 +297,7 @@ def get_heatmap():
             freq_end=freq_end,
             start_time=start_time_param if use_custom_timestamps else None,
             end_time=end_time_param if use_custom_timestamps else None,
+            receiver=receiver,
             cmap=cmap
         )
 
@@ -389,6 +390,8 @@ def get_band_heatmap():
         date = request.args.get('date')
         receiver = request.args.get('receiver')
         
+        logger.info(f"Heatmap request: band_name={band_name}, time_range={time_range}, date={date}, receiver={receiver}, cmap={cmap}")
+        
         if not band_name:
             return jsonify({
                 'status': 'error',
@@ -423,28 +426,46 @@ def get_band_heatmap():
         end_time = None
         if date:
             try:
-                selected_date = datetime.fromisoformat(date)
+                selected_date = datetime.fromisoformat(date).replace(tzinfo=timezone.utc)
+                now = datetime.now(timezone.utc)
                 
-                # Berechne Endzeit basierend auf time_range
-                if time_range == '1h':
-                    end_time = selected_date + timedelta(hours=1)
-                elif time_range == '6h':
-                    end_time = selected_date + timedelta(hours=6)
-                elif time_range == '24h':
-                    end_time = selected_date + timedelta(days=1)
-                elif time_range == '7d':
-                    end_time = selected_date + timedelta(days=7)
-                elif time_range == '30d':
-                    end_time = selected_date + timedelta(days=30)
-                
-                start_time = selected_date.isoformat()
-                end_time = end_time.isoformat()
+                # Spezielle Behandlung für heute: Zeitfenster rückwärts von jetzt
+                if selected_date.date() == now.date():
+                    # Für heute: von jetzt - delta bis jetzt
+                    if time_range == '1h':
+                        start_time = (now - timedelta(hours=1)).isoformat()
+                    elif time_range == '6h':
+                        start_time = (now - timedelta(hours=6)).isoformat()
+                    elif time_range == '24h':
+                        start_time = (now - timedelta(days=1)).isoformat()
+                    elif time_range == '7d':
+                        start_time = (now - timedelta(days=7)).isoformat()
+                    elif time_range == '30d':
+                        start_time = (now - timedelta(days=30)).isoformat()
+                    end_time = now.isoformat()
+                else:
+                    # Für vergangene Tage: von 00:00 des Tages bis delta später
+                    if time_range == '1h':
+                        end_time = selected_date + timedelta(hours=1)
+                    elif time_range == '6h':
+                        end_time = selected_date + timedelta(hours=6)
+                    elif time_range == '24h':
+                        end_time = selected_date + timedelta(days=1)
+                    elif time_range == '7d':
+                        end_time = selected_date + timedelta(days=7)
+                    elif time_range == '30d':
+                        end_time = selected_date + timedelta(days=30)
+                    
+                    start_time = selected_date.isoformat()
+                    end_time = end_time.isoformat()
                 
             except ValueError as e:
                 return jsonify({
                     'status': 'error',
                     'message': f'Ungültiges Datum-Format: {date}'
                 }), 400
+        
+        logger.info(f"Calculated times: start_time={start_time}, end_time={end_time}")
         
         # Heatmap generieren
         heatmap_base64 = heatmap_gen.get_heatmap_data(
@@ -1071,10 +1092,15 @@ def run_automatic_scan():
                 capture_output=True,
                 cwd=os.path.dirname(os.path.abspath(__file__))
             )
+            # Logge stdout und stderr immer
+            if result.stdout:
+                logger.info(f"HackRF stdout: {result.stdout.decode()}")
+            if result.stderr:
+                logger.error(f"HackRF stderr: {result.stderr.decode()}")
             if result.returncode == 0:
                 logger.info("✅ HackRF Scan abgeschlossen")
             else:
-                logger.error(f"❌ HackRF Scan fehlgeschlagen: {result.stderr.decode()}")
+                logger.error(f"❌ HackRF Scan fehlgeschlagen (returncode {result.returncode})")
         except Exception as e:
             logger.error(f"❌ HackRF Scan Fehler: {e}")
         
@@ -1108,6 +1134,7 @@ def run_automatic_scan():
 
 def init_scheduler():
     """Initialisiere Background-Scheduler für kontinuierliche Scans"""
+    logger.info("init_scheduler called")
     try:
         scheduler = BackgroundScheduler()
         
@@ -1139,6 +1166,7 @@ def init_scheduler():
         scheduler.start()
         logger.info(f"✅ Scheduler gestartet - Scans alle {scan_interval_minutes:.1f} Minuten")
         logger.info("✅ Täglicher 24h-Heatmap-Job um 00:05 Uhr hinzugefügt")
+        logger.info(f"Scheduler Jobs: {scheduler.get_jobs()}")
         
         # Starte sofort ersten Scan
         logger.info("Starte initialen Scan...")
