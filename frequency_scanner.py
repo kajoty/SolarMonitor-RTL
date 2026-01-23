@@ -81,10 +81,10 @@ class RTLSDRScanner:
     """Scannt Frequenzbereiche mit RTL-SDR Hardware"""
     
     # Solar Radio Astronomy - Meterwellen für Type II/III Solar Bursts
-    # RTL2838 Tuner Frequenzbereich: 24-1766 MHz (praktisch: 50-1500 MHz)
+    # RTL2838 Tuner Frequenzbereich: 24-1766 MHz (praktisch: 26-1500 MHz stabil)
     COMMON_BANDS = [
-        # Index 0 - Radio Jove / Meterwellen (24-80 MHz) - angepasst an RTL-SDR Grenze
-        FrequencyBand("Solar Radio (24-80 MHz)", 24.0, 80.0, "Type II/III Solar Bursts & Radioastronomie"),
+        # Index 0 - Radio Jove / Meterwellen (26-80 MHz) - RTL-SDR kann nicht unter 26 MHz
+        FrequencyBand("Solar Radio", 26.0, 80.0, "Type II/III Solar Bursts & Radioastronomie"),
     ]
     
     def __init__(self, rtl_device_index: int = 0, sample_rate: int = 2000000, 
@@ -176,65 +176,70 @@ class RTLSDRScanner:
     
     def scan_band(self, band: FrequencyBand, num_samples: int = 256) -> Optional[ScanResult]:
         """
-        Scanne einen Frequenzbereich und analysiere Aktivität
+        Scanne einen Frequenzbereich mit rtl_power CLI Tool (zuverlässiger als pyrtlsdr)
         
         Args:
             band: FrequencyBand zum Scannen
-            num_samples: Anzahl der zu erfassenden Samples pro Frequenz
+            num_samples: wird ignoriert (rtl_power nutzt interne Einstellung)
             
         Returns:
             ScanResult mit Analyse oder None bei Fehler
         """
-        # Versuche zu verbinden wenn nicht verbunden
-        if not self._ensure_connected():
-            logger.warning("RTL-SDR nicht verbunden - kann nicht scannen")
-            return None
+        import subprocess
+        import tempfile
+        
+        start_time = datetime.now()
         
         try:
-            import rtlsdr
+            logger.info(f"Starte Scan für {band.name} ({band.freq_start}-{band.freq_end} MHz) mit rtl_power")
             
-            start_time = datetime.now()
-            num_frequencies = 500  # Optimiert für Scan-Zeit (~25 sec statt 50 sec bei 1000 Punkten)
+            # rtl_power Kommando:
+            # -f start:stop:step - Frequenzbereich (MHz)
+            # -g gain - Gain (default auto)
+            # -p ppm - PPM Korrektur
+            # -d device_index
+            # -1 - Single measurement (schnell)
+            freq_range = f"{int(band.freq_start * 1e6)}:{int(band.freq_end * 1e6)}:100000"  # 100 kHz steps
             
-            frequencies = np.linspace(band.freq_start, band.freq_end, num_frequencies)
+            cmd = [
+                'rtl_power',
+                '-f', freq_range,
+                '-g', str(self.gain if self.gain != 'auto' else 0),  # rtl_power nutzt auto nicht
+                '-p', str(self.ppm_correction),
+                '-d', str(self.rtl_device_index),
+                '-1'  # Single measurement
+            ]
+            
+            # Führe rtl_power aus und parse Output
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode != 0:
+                logger.warning(f"rtl_power Fehler: {result.stderr}")
+                return None
+            
+            # Parse rtl_power Output (CSV Format)
+            frequencies = []
             power_values = []
             
-            logger.info(f"Starte Scan für {band.name} ({band.freq_start}-{band.freq_end} MHz)")
-            
-            for freq in frequencies:
-                try:
-                    # Stelle Frequenz ein (in Hz)
-                    # Wrap in try-except um Hardware-Crashes zu verhindern
+            for line in result.stdout.strip().split('\n'):
+                if not line or line.startswith('#'):
+                    continue
+                parts = line.split(',')
+                if len(parts) >= 2:
                     try:
-                        self.device.center_freq = int(freq * 1e6)
-                    except Exception as freq_error:
-                        logger.warning(f"Konnte Frequenz {freq} MHz nicht setzen: {freq_error}")
-                        power_values.append(np.nan)
+                        freq_hz = float(parts[0])
+                        power_db = float(parts[1])
+                        frequencies.append(freq_hz / 1e6)  # Konvertiere zu MHz
+                        power_values.append(power_db)
+                    except ValueError:
                         continue
-                    
-                    # Lies IQ-Samples
-                    samples = self.device.read_samples(num_samples)
-                    
-                    # Berechne Power Spectral Density
-                    power = np.abs(samples) ** 2
-                    power_db = 10 * np.log10(np.mean(power) + 1e-10)
-                    power_values.append(power_db)
-                    
-                except Exception as e:
-                    logger.debug(f"Fehler beim Scan bei {freq} MHz: {e}")
-                    power_values.append(np.nan)
             
-            # Analysiere Ergebnisse
-            power_values = np.array(power_values)
-            
-            # Filtere NaN-Werte aus BEIDEN Arrays (Frequenzen und Power)
-            valid_mask = ~np.isnan(power_values)
-            power_values = power_values[valid_mask]
-            frequencies = frequencies[valid_mask]
-            
-            if len(power_values) == 0:
-                logger.warning(f"Keine gültigen Daten für {band.name}")
+            if not power_values:
+                logger.warning(f"Keine Daten von rtl_power für {band.name}")
                 return None
+            
+            frequencies = np.array(frequencies)
+            power_values = np.array(power_values)
             
             scan_duration = (datetime.now() - start_time).total_seconds()
             
@@ -248,6 +253,32 @@ class RTLSDRScanner:
             threshold = noise_floor + 6
             peaks = np.sum(power_values > threshold)
             activity_percentage = (peaks / len(power_values)) * 100
+            
+            # Bestimme ob Band aktiv ist
+            active = signal_to_noise > 5  # > 5dB SNR = aktiv
+            
+            logger.info(f"✅ Scan abgeschlossen: {band.name}, SNR={signal_to_noise:.1f}dB, Aktivität={activity_percentage:.1f}%")
+            
+            return ScanResult(
+                band=band,
+                avg_power=avg_power,
+                peak_power=peak_power,
+                noise_floor=noise_floor,
+                signal_to_noise=signal_to_noise,
+                active=active,
+                activity_percentage=activity_percentage,
+                num_peaks=int(peaks),
+                scan_time=scan_duration,
+                frequencies=frequencies,
+                power_values=power_values
+            )
+            
+        except subprocess.TimeoutExpired:
+            logger.error(f"rtl_power Timeout für {band.name}")
+            return None
+        except Exception as e:
+            logger.error(f"Scan-Fehler für {band.name}: {e}")
+            return None
             active = activity_percentage > 5  # >5% als "aktiv" definiert
             
             result = ScanResult(
@@ -423,3 +454,142 @@ def create_scanner_from_env() -> RTLSDRScanner:
     ppm_correction = int(os.getenv('RTL_PPM_CORRECTION', 0))  # PPM-Offset für Frequenzkalibrierung
     
     return RTLSDRScanner(device_idx, sample_rate, gain, ppm_correction)
+
+
+if __name__ == "__main__":
+    """Haupt-Ausführung: Scanne überwachte Bänder und schreibe zu PostgreSQL"""
+    import os
+    import sys
+    import subprocess
+    from dotenv import load_dotenv
+    import psycopg2
+    from psycopg2.extras import execute_values
+    
+    # Konfiguration
+    load_dotenv()
+    
+    # Logging Setup
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
+    
+    logger.info("🚀 RTL-SDR Scanner mit rtl_power CLI gestartet")
+    
+    # Band-Konfiguration - hardcodiert (26-80 MHz)
+    band = FrequencyBand("Solar Radio", 26.0, 80.0, "Type II/III Solar Bursts & Radioastronomie")
+    
+    logger.info(f"📡 Scanne Band: {band.name} ({band.freq_start}-{band.freq_end} MHz)")
+    
+    # Scan mit rtl_power durchführen (ohne pyrtlsdr zu initialisieren!)
+    try:
+        from datetime import datetime
+        import shutil
+        
+        start_time = datetime.now()
+        
+        # Finde rtl_power im PATH
+        rtl_power_path = shutil.which('rtl_power') or '/usr/bin/rtl_power'
+        
+        freq_range = f"{int(band.freq_start * 1e6)}:{int(band.freq_end * 1e6)}:100000"
+        gain_val = os.getenv('RTL_GAIN', '25.4')
+        ppm_val = int(os.getenv('RTL_PPM_CORRECTION', 0))
+        device_idx = int(os.getenv('RTL_DEVICE_INDEX', 0))
+        
+        cmd = [
+            rtl_power_path,
+            '-f', freq_range,
+            '-g', str(gain_val if gain_val != 'auto' else 0),
+            '-p', str(ppm_val),
+            '-d', str(device_idx),
+            '-1'
+        ]
+        
+        logger.info(f"Führe aus: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        
+        # rtl_power gibt Diagnose in stderr aber Daten in stdout
+        if not result.stdout.strip():
+            logger.error(f"❌ Keine Daten von rtl_power (stdout leer)")
+            sys.exit(1)
+        
+        # Parse rtl_power Output (CSV: date, time, start_freq, stop_freq, step, samples, [power_values...])
+        frequencies = []
+        power_values = []
+        
+        for line in result.stdout.strip().split('\n'):
+            if not line or line.startswith('#'):
+                continue
+            
+            parts = line.split(',')
+            if len(parts) < 7:  # date, time, start, stop, step, samples, min_power...
+                continue
+            
+            try:
+                start_freq = float(parts[2])  # Start frequency in Hz
+                stop_freq = float(parts[3])   # Stop frequency in Hz
+                step = float(parts[4])        # Frequency step size
+                num_bins = int(parts[5])      # Number of FFT bins
+                
+                # Power values start at index 6
+                bin_powers = [float(x) for x in parts[6:6+num_bins]]
+                
+                # Generate frequency array for this measurement
+                freq_array = np.linspace(start_freq, stop_freq, num_bins, endpoint=False)
+                
+                frequencies.extend(freq_array / 1e6)  # Convert Hz to MHz
+                power_values.extend(bin_powers)
+            except (ValueError, IndexError):
+                continue
+        
+        if not power_values:
+            logger.error("❌ Keine Daten von rtl_power")
+            sys.exit(1)
+        
+        frequencies = np.array(frequencies)
+        power_values = np.array(power_values)
+        scan_duration = (datetime.now() - start_time).total_seconds()
+        
+        logger.info(f"✅ {len(power_values)} Datenpunkte von rtl_power")
+        
+        # Daten in PostgreSQL schreiben
+        conn = psycopg2.connect(
+            host=os.getenv('POSTGRES_HOST', '192.168.178.100'),
+            port=int(os.getenv('POSTGRES_PORT', 5432)),
+            database=os.getenv('POSTGRES_DB', 'solarmonitor'),
+            user=os.getenv('POSTGRES_USER', 'admin'),
+            password=os.getenv('POSTGRES_PASSWORD', 'admin')
+        )
+        cursor = conn.cursor()
+        
+        timestamp = datetime.now().isoformat()
+        band_name_clean = band.name.split('(')[0].strip()
+        
+        data_points = [
+            (timestamp, band_name_clean, float(freq), float(power), 'rtl')
+            for freq, power in zip(frequencies, power_values)
+            if not np.isnan(power) and not np.isinf(power)
+        ]
+        
+        if data_points:
+            logger.info(f"Schreibe {len(data_points)} Datenpunkte in PostgreSQL...")
+            execute_values(
+                cursor,
+                "INSERT INTO frequency_spectrum (timestamp, band_name, frequency, power, receiver) VALUES %s",
+                data_points,
+                page_size=1000
+            )
+            conn.commit()
+            logger.info(f"✅ {len(data_points)} Punkte erfolgreich geschrieben")
+        else:
+            logger.warning("⚠️ Keine gültigen Datenpunkte")
+        
+        cursor.close()
+        conn.close()
+        logger.info(f"✅ Scan abgeschlossen! (Dauer: {scan_duration:.2f}s)")
+        
+    except Exception as e:
+        logger.error(f"❌ Fehler: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)

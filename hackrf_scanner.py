@@ -5,12 +5,13 @@ Scannt einen Frequenzbereich durch Sweeping und schreibt die Daten in die SQLite
 """
 
 import numpy as np
-import requests
 import datetime
 import subprocess
 import os
 import tempfile
 import logging
+import psycopg2
+from psycopg2.extras import execute_values
 from dataclasses import dataclass
 from typing import List, Tuple
 
@@ -21,18 +22,27 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Konfiguration
-FREQ_START_MHZ = 24.0      # Solar Radio Band Start
-FREQ_END_MHZ = 80.0        # Solar Radio Band Ende
-SAMPLE_RATE = 20_000_000   # 20 MHz Sample Rate (Maximum)
-BANDWIDTH_MHZ = 20.0       # Nutzbare Bandbreite pro Sweep
-NUM_SAMPLES = 2_000_000    # Samples pro Sweep
-FFT_SIZE = 4096            # FFT-Größe
-LNA_GAIN = 16              # LNA Gain (0-40 dB, 8dB steps)
-VGA_GAIN = 20              # VGA Gain (0-62 dB, 2dB steps)
-AMP_ENABLE = 0             # RF Amplifier (0=off, 1=on)
+# Konfiguration aus .env laden
+from dotenv import load_dotenv
+load_dotenv()
 
-SQLITE_REST_URL = "http://localhost:8002/api/write"
+FREQ_START_MHZ = float(os.getenv('HACKRF_FREQ_START', 24.0))
+FREQ_END_MHZ = float(os.getenv('HACKRF_FREQ_END', 80.0))
+SAMPLE_RATE = int(os.getenv('HACKRF_SAMPLE_RATE', 20_000_000))
+BANDWIDTH_MHZ = float(os.getenv('HACKRF_BANDWIDTH', 20.0))
+NUM_SAMPLES = int(os.getenv('HACKRF_NUM_SAMPLES', 2_000_000))
+FFT_SIZE = int(os.getenv('HACKRF_FFT_SIZE', 512))
+LNA_GAIN = int(os.getenv('HACKRF_LNA_GAIN', 16))
+VGA_GAIN = int(os.getenv('HACKRF_VGA_GAIN', 20))
+AMP_ENABLE = int(os.getenv('HACKRF_AMP_ENABLE', 0))
+
+# PostgreSQL Verbindung
+POSTGRES_HOST = os.getenv('POSTGRES_HOST', '192.168.178.100')
+POSTGRES_PORT = int(os.getenv('POSTGRES_PORT', 5432))
+POSTGRES_DB = os.getenv('POSTGRES_DB', 'solarmonitor')
+POSTGRES_USER = os.getenv('POSTGRES_USER', 'admin')
+POSTGRES_PASSWORD = os.getenv('POSTGRES_PASSWORD', 'admin')
+
 BAND_NAME = "Solar Radio"
 RECEIVER = "hackrf"
 
@@ -222,7 +232,7 @@ def merge_sweep_results(results: List[SweepResult]) -> Tuple[np.ndarray, np.ndar
 
 def write_to_database(frequencies_mhz: np.ndarray, spectrum_db: np.ndarray):
     """
-    Schreibt Spektrumdaten in die SQLite-Datenbank
+    Schreibt Spektrumdaten direkt in PostgreSQL
     
     Args:
         frequencies_mhz: Frequenzen in MHz
@@ -235,31 +245,45 @@ def write_to_database(frequencies_mhz: np.ndarray, spectrum_db: np.ndarray):
     freqs = frequencies_mhz[valid]
     spectra = spectrum_db[valid]
     
-    # Erstelle Payload
     timestamp = datetime.datetime.now(datetime.UTC).isoformat()
-    data_points = [
-        {"frequency": float(f), "power": float(p)}
-        for f, p in zip(freqs, spectra)
-    ]
     
-    payload = {
-        "timestamp": timestamp,
-        "band_name": BAND_NAME,
-        "receiver": RECEIVER,
-        "data": data_points
-    }
+    logger.info(f"Schreibe {len(freqs)} Datenpunkte direkt in PostgreSQL...")
     
-    logger.info(f"Schreibe {len(data_points)} Datenpunkte in Datenbank...")
-    
-    # Sende an SQLite REST API
     try:
-        response = requests.post(SQLITE_REST_URL, json=payload, timeout=30)
-        if response.status_code == 201:
-            logger.info(f"✅ Erfolgreich {len(data_points)} Punkte importiert")
-        else:
-            logger.error(f"❌ Fehler: {response.status_code} - {response.text}")
+        # PostgreSQL Verbindung
+        conn = psycopg2.connect(
+            host=POSTGRES_HOST,
+            port=POSTGRES_PORT,
+            database=POSTGRES_DB,
+            user=POSTGRES_USER,
+            password=POSTGRES_PASSWORD
+        )
+        cursor = conn.cursor()
+        
+        # Batch-Insert mit execute_values (schnell!)
+        data = [
+            (timestamp, BAND_NAME, float(f), float(p), RECEIVER)
+            for f, p in zip(freqs, spectra)
+        ]
+        
+        execute_values(
+            cursor,
+            """
+            INSERT INTO frequency_spectrum (timestamp, band_name, frequency, power, receiver)
+            VALUES %s
+            """,
+            data,
+            page_size=1000
+        )
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        logger.info(f"✅ {len(freqs)} Punkte erfolgreich geschrieben")
+        
     except Exception as e:
-        logger.error(f"❌ Datenbank-Fehler: {e}")
+        logger.error(f"❌ PostgreSQL-Fehler: {e}")
 
 def main():
     """Hauptfunktion: Führt kompletten Frequenz-Scan durch"""

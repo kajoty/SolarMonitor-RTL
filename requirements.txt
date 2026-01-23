@@ -11,3 +11,4 @@ matplotlib
 scipy
 pillow
 pandas
+psycopg2-binary
