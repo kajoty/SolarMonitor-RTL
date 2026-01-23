@@ -1,3 +1,5 @@
+Hier ist der aktuelle Inhalt deiner `README.md` direkt als Text für den Chat:
+
 # SolarMonitor-RTL
 
 An automated radio spectrometer for monitoring solar radio bursts in the frequency range of 26 MHz to 80 MHz. The system utilizes an RTL-SDR dongle, stores data in a PostgreSQL database, and visualizes it via an interactive web interface.
@@ -7,17 +9,15 @@ An automated radio spectrometer for monitoring solar radio bursts in the frequen
 * **Continuous Spectrum Logging:** Captures signal strength (dB) across the entire band.
 * **Long-term Archiving:** Persistent storage in PostgreSQL without automatic deletion.
 * **Interactive Waterfall:** Web application featuring Plotly heatmaps with zoom and pan.
-* **Automated Image Export:** Background service to generate PNG heatmaps every few hours.
-* **Performance Optimization:** Dynamic downsampling (time aggregation) for large timeframes (e.g., 24h view).
-* **Precise Axes:** Accurate representation of frequency (MHz) and timestamps.
+* **Automated Image Export:** Background service to generate PNG heatmaps every few hours using Matplotlib.
+* **Systemd Integration:** Professional automation using systemd services and timers for high reliability.
 
 ## System Architecture
 
-1. **Data Source:** `rtl_power` scans the spectrum and pipes data into the database.
-2. **Database:** PostgreSQL for high-performance retrieval of millions of data points.
-3. **Backend:** Flask & SQLAlchemy (provides the API and data processing).
-4. **Automated Export:** Matplotlib-based script for periodic image generation.
-5. **Frontend:** Plotly.js for interactive data exploration.
+1. **Data Source:** `rtl_power` scans the spectrum via a triggered systemd timer.
+2. **Database:** PostgreSQL for high-performance retrieval of signal data.
+3. **Backend:** Flask & SQLAlchemy providing the API and web server.
+4. **Automated Export:** Background script for periodic image generation in `recordings/`.
 
 ## Installation
 
@@ -25,78 +25,47 @@ An automated radio spectrometer for monitoring solar radio bursts in the frequen
 
 * Raspberry Pi (tested on Pi 4B)
 * RTL-SDR USB dongle
-* Installed packages: `rtl-sdr`, `postgresql`, `libpq-dev`, `python3-pip`
+* Packages: `rtl-sdr`, `postgresql`, `libpq-dev`, `python3-pip`
 
 ### 2. Project Setup
 
 ```bash
-# Clone the repository
 git clone <your-repo-link>
 cd SolarMonitor-RTL
-
-# Create virtual environment
 python3 -m venv venv
 source venv/bin/activate
-
-# Install dependencies
 pip install -r requirements.txt
 
 ```
 
-### 3. Configuration
+### 3. Automated Service Setup
 
-Create a `.env` file in the project root:
+We provide a setup script to install the necessary background services:
 
-```env
-POSTGRES_HOST=localhost
-POSTGRES_DB=your_db
-POSTGRES_USER=your_user
-POSTGRES_PASSWORD=your_password
+```bash
+chmod +x setup_services.sh
+./setup_services.sh
 
 ```
 
 ## Usage
 
-### Web Interface (app.py)
+### Web Interface
 
-The web app provides a real-time dashboard for data exploration. It allows filtering by time (1h to 24h) and handles data reduction automatically to maintain high performance.
+The dashboard is accessible at `http://<YOUR-PI-IP>:5000`. It provides real-time visualization and historical data navigation.
 
-```bash
-source venv/bin/activate
-python3 app.py
+### Data Acquisition
 
-```
+The scanner is controlled by `solarmonitor-rtl.timer`. By default, it triggers a scan every 5 minutes. You can adjust the frequency by editing the timer file:
+`sudo nano /etc/systemd/system/solarmonitor-rtl.timer`
 
-Access the dashboard at `http://<YOUR-PI-IP>:5000`.
+## Uninstallation
 
-### Automated Heatmap Export (generate_heatmap.py)
-
-This script runs as a continuous background process. It queries the database every few hours and saves a PNG snapshot of the recent spectrum to the `recordings/` folder. It uses Matplotlib for maximum stability on ARM-based systems.
+To remove all installed services and timers from your system, use the provided uninstallation script:
 
 ```bash
-python3 generate_heatmap.py
-
-```
-
-## System Integration (systemd)
-
-To ensure both the Web App and the Heatmap Generator run automatically after a reboot, it is recommended to use systemd services.
-
-Example for the Heatmap Service (`/etc/systemd/system/solar-heatmap.service`):
-
-```ini
-[Unit]
-Description=SolarMonitor Heatmap Generator
-After=postgresql.service
-
-[Service]
-ExecStart=/home/pi/SolarMonitor-RTL/venv/bin/python3 /home/pi/SolarMonitor-RTL/generate_heatmap.py
-WorkingDirectory=/home/pi/SolarMonitor-RTL
-User=pi
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
+chmod +x uninstall_services.sh
+./uninstall_services.sh
 
 ```
 
@@ -106,14 +75,14 @@ The `frequency_spectrum` table stores the raw data:
 
 | Column | Type | Description |
 | --- | --- | --- |
-| **timestamp** | TIMESTAMP | Time of measurement (UTC/Local) |
+| **timestamp** | TIMESTAMP | Time of measurement |
 | **frequency** | DOUBLE PRECISION | Center frequency in MHz |
 | **power** | DOUBLE PRECISION | Measured signal level in dB |
 
 **Optimization:**
-To maintain query speed as the database grows, an index on the timestamp column is essential:
+Ensure an index is created for fast retrieval:
 `CREATE INDEX idx_timestamp ON frequency_spectrum (timestamp);`
 
 ## Visualization
 
-The heatmap is calibrated to a color range of **-50 dB to -20 dB** (Viridis scale). This specific range is optimized to distinguish solar radio bursts (Type II/III) from the typical RF background noise of the RTL-SDR hardware.
+The heatmap is calibrated to a color range of **-50 dB to -20 dB** (Viridis scale), optimized to highlight solar radio bursts (Type II/III) against background noise.
