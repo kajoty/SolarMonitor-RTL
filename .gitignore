@@ -16,3 +16,7 @@ heatmaps/
 # RTL-Power parallel system data
 rtl_power_data/
 *.csv
+
+hackrf/
+hackrf_scanner.py
+solarmonitor-hackrf.*
