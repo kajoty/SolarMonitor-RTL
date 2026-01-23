@@ -1,5 +1,3 @@
-Hier ist die erweiterte, vollständige englische README inklusive der Informationen zum Heatmap-Generator und den App-Details direkt als Text:
-
 # SolarMonitor-RTL
 
 An automated radio spectrometer for monitoring solar radio bursts in the frequency range of 26 MHz to 80 MHz. The system utilizes an RTL-SDR dongle, stores data in a PostgreSQL database, and visualizes it via an interactive web interface.
