@@ -1,5 +1,3 @@
-Hier ist der aktuelle Inhalt deiner `README.md` direkt als Text für den Chat:
-
 # SolarMonitor-RTL
 
 An automated radio spectrometer for monitoring solar radio bursts in the frequency range of 26 MHz to 80 MHz. The system utilizes an RTL-SDR dongle, stores data in a PostgreSQL database, and visualizes it via an interactive web interface.
