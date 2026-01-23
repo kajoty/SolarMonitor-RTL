@@ -1,76 +1,14 @@
-# SolarMonitor-RTL - Minimal Scanner
-
-Minimales Setup für kontinuierliches RTL-SDR + HackRF Scanning mit PostgreSQL-Speicherung.
-
-## Dateien
-
-- `frequency_scanner.py` - RTL-SDR Scanner (24-80 MHz Solar Radio)
-- `hackrf_scanner.py` - HackRF Scanner (24-80 MHz Solar Radio)
-- `postgres_server.py` - REST API → PostgreSQL (192.168.178.100:5432)
-- `.env` - Konfiguration
-
-## Setup
-
-```bash
-python3 -m venv venv
+Das ist eine hervorragende und präzise Zusammenfassung für dein neues Setup. Ich habe den Text noch einmal final formatiert, damit er direkt als professionelle README.md genutzt werden kann.Hier ist die finale Version:SolarMonitor-RTL (RTL-SDR Only)Spezialisiertes Setup für kontinuierliches Monitoring von Solar Radio Bursts (26.0–80.0 MHz) mit dem RTL-SDR Dongle und automatischer Speicherung in einer PostgreSQL-Datenbank.KernfunktionenFrequenzbereich: 26.0 MHz bis 80.0 MHz (optimiert für solares Weltraumwetter).Hardware: RTL-SDR (RTL2832U / R828D).Backend: Speicherung in PostgreSQL auf externem Host (192.168.178.100).Automatisierung: Vollautomatisch über Systemd-Timer (kein manueller Cron-Eintrag nötig).Dateienfrequency_scanner.py: Haupt-Skript für die Datenerfassung via rtl_power..env: Konfiguration (Gain, Datenbank-Zugriff, Scan-Intervalle).requirements.txt: Python-Abhängigkeiten.solarmonitor-rtl.service/timer: Systemd-Konfigurationsdateien.Installation & Setup1. System-Abhängigkeiten (Raspberry Pi)Bevor Python gestartet wird, müssen die Hardware-Treiber auf dem Pi installiert sein:Bashsudo apt update
+sudo apt install librtlsdr-dev rtl-sdr
+2. Python-UmgebungBashpython3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
-# Editiere .env falls nötig
-```
+3. WICHTIG: Python 3.13 Library-FixUnter Python 3.13 auf Linux sucht das Paket pyrtlsdr oft fälschlicherweise nach einer Windows-DLL. Dieser Befehl korrigiert den Pfad innerhalb deiner virtuellen Umgebung:Bashecho '{"x64": "/usr/lib/aarch64-linux-gnu/librtlsdr.so.0", "x86": "/usr/lib/aarch64-linux-gnu/librtlsdr.so.0"}' > venv/lib/python3.13/site-packages/rtlsdr/config.json
+Automatisierung (Systemd)Das Projekt wird über einen Systemd-Timer gesteuert, der alle paar Minuten einen Scan auslöst. Dies ist zuverlässiger als ein klassischer Cron-Job.Services installieren & starten:Bash# Dateien kopieren
+sudo cp solarmonitor-rtl.service /etc/systemd/system/
+sudo cp solarmonitor-rtl.timer /etc/systemd/system/
 
-## Manuelles Scanning
-
-### PostgreSQL-Server (Port 8002)
-```bash
-python3 postgres_server.py
-```
-
-### RTL-SDR Scanner
-```bash
-python3 frequency_scanner.py
-# Scannt einmal, dann Exit
-```
-
-### HackRF Scanner
-```bash
-python3 hackrf_scanner.py
-# Scannt einmal, dann Exit
-```
-
-## Automatisches Scanning (Cron)
-
-```bash
-# Bearbeite crontab
-crontab -e
-
-# Füge hinzu (alle 5 Minuten):
-*/5 * * * * cd /home/pi/Projekte/scanner/SolarMonitor-RTL && source venv/bin/activate && python3 frequency_scanner.py >> scanner.log 2>&1
-*/5 * * * * cd /home/pi/Projekte/scanner/SolarMonitor-RTL && source venv/bin/activate && python3 hackrf_scanner.py >> scanner.log 2>&1
-```
-
-## Datenbank
-
-PostgreSQL auf 192.168.178.100:5432, Datenbank `solarmonitor`, Tabelle `frequency_spectrum`:
-
-| Feld | Typ | Beschreibung |
-|---|---|---|
-| id | INTEGER | Primary Key |
-| timestamp | TEXT | ISO 8601 Zeitstempel |
-| band_name | TEXT | "Solar Radio" |
-| frequency | REAL | MHz |
-| power | REAL | dB |
-| receiver | TEXT | "rtl" oder "hackrf" |
-| created_at | TIMESTAMP | Server-Zeit |
-
-## Logs
-
-```bash
-tail -f scanner.log
-```
-
-## Daten prüfen
-
-```bash
-psql -h 192.168.178.100 -U admin -d solarmonitor -c "SELECT COUNT(*), receiver FROM frequency_spectrum GROUP BY receiver;"
-```
+# Systemd neu laden und Timer aktivieren
+sudo systemctl daemon-reload
+sudo systemctl enable --now solarmonitor-rtl.timer
+Überwachung:Nächster Scan: systemctl list-timers solarmonitor-rtl.timerLive-Logs: journalctl -u solarmonitor-rtl.service -fDatenbank-StrukturDie Daten werden in der Tabelle frequency_spectrum gespeichert. Ein Scan erzeugt ca. 660 Datenpunkte pro Durchlauf.FeldTypBeschreibungtimestampTEXTISO 8601 Zeitstempel (z.B. 2026-01-23T...)band_nameTEXTFestgelegt auf "Solar Radio"frequencyREALFrequenz in MHzpowerREALSignalstärke in dBreceiverTEXTFixer Wert "rtl"
