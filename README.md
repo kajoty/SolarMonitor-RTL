@@ -1,41 +1,33 @@
-☀️ SolarMonitor-RTL
+# ☀️ SolarMonitor-RTL
 
-Ein automatisiertes Radiospektrometer zur Überwachung solarer Radio-Bursts im Frequenzbereich von 26 MHz bis 80 MHz. Das System nutzt einen RTL-SDR Dongle, speichert die Daten in einer PostgreSQL-Datenbank und visualisiert sie über ein interaktives Web-Interface.
+Ein automatisiertes Radiospektrometer zur Überwachung solarer Radio-Bursts im Frequenzbereich von **26 MHz bis 80 MHz**. Das System nutzt einen RTL-SDR Dongle, speichert die Daten in einer PostgreSQL-Datenbank und visualisiert sie über ein interaktives Web-Interface.
 
-🚀 Features
+## 🚀 Features
 
-Kontinuierliches Spektrum-Logging: Erfasst Signalstärken (dB) über das gesamte Band.
+* **Kontinuierliches Spektrum-Logging:** Erfasst Signalstärken (dB) über das gesamte Band.
+* **Langzeit-Archivierung:** Speicherung in PostgreSQL ohne automatisches Löschen.
+* **Interaktiver Wasserfall:** Web-Anwendung mit Plotly-Heatmaps.
+* **Performance-Optimierung:** Dynamisches Downsampling (Zeit-Aggregierung) bei großen Zeiträumen (z.B. 24h-Ansicht).
+* **Präzise Achsen:** Korrekte Darstellung von Frequenz (MHz) und Zeitstempeln durch fixierte Achsen-Typen.
 
-Langzeit-Archivierung: Speicherung in PostgreSQL ohne automatisches Löschen (kein Cleanup).
+## 🛠 System-Architektur
 
-Interaktiver Wasserfall: Web-Interface mit Plotly-Heatmaps.
+1. **Datenquelle:** `rtl_power` scannt das Spektrum und schreibt die Daten in die DB.
+2. **Datenbank:** PostgreSQL (Langzeit-Speicherung).
+3. **Backend:** Flask & SQLAlchemy (Datenabfrage und Downsampling-Logik).
+4. **Frontend:** Plotly.js (Interaktive Heatmap im Browser).
 
-Performance-Fokus: Dynamisches Downsampling (Zeit-Aggregierung) bei großen Zeiträumen (z.B. 24h-Ansicht).
+## 📦 Installation
 
-Präzise Achsen: Korrekte Darstellung von Frequenz (MHz) und Zeitstempeln durch fixierte Achsen-Typen.
+### 1. System-Anforderungen
 
-🛠 System-Architektur
+* Raspberry Pi (getestet auf Pi 4B)
+* RTL-SDR USB-Dongle
+* Installierte Pakete: `rtl-sdr`, `postgresql`, `libpq-dev`
 
-Datenquelle: rtl_power scannt das Spektrum und schreibt die Daten (via Script oder Pipe) in die DB.
+### 2. Projekt-Setup
 
-Datenbank: PostgreSQL (Langzeit-Speicherung).
-
-Backend: Flask & SQLAlchemy (Datenabfrage und Downsampling-Logik).
-
-Frontend: Plotly.js (Interaktive Heatmap im Browser).
-
-📦 Installation
-
-1. System-Anforderungen
-
-Raspberry Pi (getestet auf Pi 4B)
-
-RTL-SDR USB-Dongle
-
-Installierte Pakete: rtl-sdr, postgresql, libpq-dev
-
-2. Projekt-Setup
-
+```bash
 # Repository klonen
 git clone <dein-repo-link>
 cd SolarMonitor-RTL
@@ -47,48 +39,52 @@ source venv/bin/activate
 # Abhängigkeiten installieren
 pip install -r requirements.txt
 
+```
 
-3. Konfiguration
+### 3. Konfiguration
 
-Erstelle eine Datei namens .env im Projektordner:
+Erstelle eine Datei namens `.env` im Projektordner:
 
+```env
 POSTGRES_HOST=localhost
 POSTGRES_DB=deine_db
 POSTGRES_USER=dein_user
 POSTGRES_PASSWORD=dein_passwort
 
+```
 
-🖥 Nutzung
+## 🖥 Nutzung
 
-Web-Interface starten
+### Web-Interface starten
 
+```bash
 source venv/bin/activate
 python3 app.py
 
+```
 
-Das Interface ist im Netzwerk unter http://<IP-DEINES-PI>:5000 erreichbar.
+Das Interface ist im Netzwerk unter `http://<IP-DEINES-PI>:5000` erreichbar.
 
-Zeitfilter & Anzeige
+### Zeitfilter & Anzeige
 
 Über das Interface können verschiedene Zeitfenster gewählt werden:
 
-1h / 3h / 6h: Volle Auflösung für Detailanalysen.
+* **1h / 3h / 6h:** Volle Auflösung für Detailanalysen.
+* **12h / 24h:** Automatisches Downsampling zur Entlastung des Browsers.
 
-12h / 24h: Automatisches Downsampling zur Entlastung des Browsers.
+## 📊 Datenbank-Struktur
 
-📊 Datenbank-Struktur
+Die Tabelle `frequency_spectrum` sollte wie folgt aufgebaut sein:
 
-Die Tabelle frequency_spectrum sollte wie folgt aufgebaut sein:
+| Spalte | Typ | Beschreibung |
+| --- | --- | --- |
+| **timestamp** | TIMESTAMP | Messzeitpunkt |
+| **frequency** | DOUBLE PRECISION | Frequenz in MHz |
+| **power** | DOUBLE PRECISION | Pegel in dB |
 
-timestamp: TIMESTAMP (Primärer Zeitstempel)
+> **Profi-Tipp:** Erstelle einen Index auf die Spalte `timestamp`, um die Abfragen zu beschleunigen:
+> `CREATE INDEX idx_timestamp ON frequency_spectrum (timestamp);`
 
-frequency: DOUBLE PRECISION (Frequenz in MHz)
+## 📈 Visualisierung
 
-power: DOUBLE PRECISION (Pegel in dB)
-
-Tipp: Da kein automatisches Cleanup durchgeführt wird, empfiehlt es sich, einen Index auf die Spalte timestamp zu setzen, um die Abfragegeschwindigkeit bei wachsender Datenbank beizubehalten:
-CREATE INDEX idx_timestamp ON frequency_spectrum (timestamp);
-
-📈 Visualisierung
-
-Die Heatmap nutzt die Viridis oder Inferno Farbskala, optimiert auf einen Bereich von -50 dB bis -20 dB, um solare Aktivitäten deutlich vom Hintergrundrauschen abzuheben.
+Die Heatmap nutzt die `Viridis` Farbskala, optimiert auf einen Bereich von **-50 dB bis -20 dB**, um solare Aktivitäten deutlich vom Hintergrundrauschen abzuheben.
