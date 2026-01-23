@@ -28,7 +28,7 @@ An automated radio spectrometer for monitoring solar radio bursts in the frequen
 ### 2. Project Setup
 
 ```bash
-git clone <your-repo-link>
+git clone https://github.com/kajoty/SolarMonitor-RTL
 cd SolarMonitor-RTL
 python3 -m venv venv
 source venv/bin/activate
