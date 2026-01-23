@@ -1,61 +1,67 @@
+Hier ist die erweiterte, vollständige englische README inklusive der Informationen zum Heatmap-Generator und den App-Details direkt als Text:
+
 # SolarMonitor-RTL
 
-Ein automatisiertes Radiospektrometer zur Überwachung solarer Radio-Bursts im Frequenzbereich von 26 MHz bis 80 MHz. Das System nutzt einen RTL-SDR Dongle, speichert die Daten in einer PostgreSQL-Datenbank und visualisiert sie über ein interaktives Web-Interface.
+An automated radio spectrometer for monitoring solar radio bursts in the frequency range of 26 MHz to 80 MHz. The system utilizes an RTL-SDR dongle, stores data in a PostgreSQL database, and visualizes it via an interactive web interface.
 
 ## Features
 
-* Kontinuierliches Spektrum-Logging: Erfasst Signalstärken (dB) über das gesamte Band.
-* Langzeit-Archivierung: Speicherung in PostgreSQL ohne automatisches Löschen.
-* Interaktiver Wasserfall: Web-Anwendung mit Plotly-Heatmaps.
-* Performance-Optimierung: Dynamisches Downsampling (Zeit-Aggregierung) bei großen Zeiträumen (z.B. 24h-Ansicht).
-* Präzise Achsen: Korrekte Darstellung von Frequenz (MHz) und Zeitstempeln durch fixierte Achsen-Typen.
+* **Continuous Spectrum Logging:** Captures signal strength (dB) across the entire band.
+* **Long-term Archiving:** Persistent storage in PostgreSQL without automatic deletion.
+* **Interactive Waterfall:** Web application featuring Plotly heatmaps with zoom and pan.
+* **Automated Image Export:** Background service to generate PNG heatmaps every few hours.
+* **Performance Optimization:** Dynamic downsampling (time aggregation) for large timeframes (e.g., 24h view).
+* **Precise Axes:** Accurate representation of frequency (MHz) and timestamps.
 
-## System-Architektur
+## System Architecture
 
-1. Datenquelle: rtl_power scannt das Spektrum und schreibt die Daten in die DB.
-2. Datenbank: PostgreSQL (Langzeit-Speicherung).
-3. Backend: Flask & SQLAlchemy (Datenabfrage und Downsampling-Logik).
-4. Frontend: Plotly.js (Interaktive Heatmap im Browser).
+1. **Data Source:** `rtl_power` scans the spectrum and pipes data into the database.
+2. **Database:** PostgreSQL for high-performance retrieval of millions of data points.
+3. **Backend:** Flask & SQLAlchemy (provides the API and data processing).
+4. **Automated Export:** Matplotlib-based script for periodic image generation.
+5. **Frontend:** Plotly.js for interactive data exploration.
 
 ## Installation
 
-### 1. System-Anforderungen
+### 1. System Requirements
 
-* Raspberry Pi (getestet auf Pi 4B)
-* RTL-SDR USB-Dongle
-* Installierte Pakete: rtl-sdr, postgresql, libpq-dev
+* Raspberry Pi (tested on Pi 4B)
+* RTL-SDR USB dongle
+* Installed packages: `rtl-sdr`, `postgresql`, `libpq-dev`, `python3-pip`
 
-### 2. Projekt-Setup
+### 2. Project Setup
 
 ```bash
-# Repository klonen
-git clone <dein-repo-link>
+# Clone the repository
+git clone <your-repo-link>
 cd SolarMonitor-RTL
 
-# Virtual Environment erstellen
+# Create virtual environment
 python3 -m venv venv
 source venv/bin/activate
 
-# Abhängigkeiten installieren
+# Install dependencies
 pip install -r requirements.txt
 
 ```
 
-### 3. Konfiguration
+### 3. Configuration
 
-Erstelle eine Datei namens .env im Projektordner:
+Create a `.env` file in the project root:
 
 ```env
 POSTGRES_HOST=localhost
-POSTGRES_DB=deine_db
-POSTGRES_USER=dein_user
-POSTGRES_PASSWORD=dein_passwort
+POSTGRES_DB=your_db
+POSTGRES_USER=your_user
+POSTGRES_PASSWORD=your_password
 
 ```
 
-## Nutzung
+## Usage
 
-### Web-Interface starten
+### Web Interface (app.py)
+
+The web app provides a real-time dashboard for data exploration. It allows filtering by time (1h to 24h) and handles data reduction automatically to maintain high performance.
 
 ```bash
 source venv/bin/activate
@@ -63,27 +69,53 @@ python3 app.py
 
 ```
 
-Das Interface ist im Netzwerk unter http://<IP-DEINES-PI>:5000 erreichbar.
+Access the dashboard at `http://<YOUR-PI-IP>:5000`.
 
-### Zeitfilter & Anzeige
+### Automated Heatmap Export (generate_heatmap.py)
 
-Über das Interface können verschiedene Zeitfenster gewählt werden:
+This script runs as a continuous background process. It queries the database every few hours and saves a PNG snapshot of the recent spectrum to the `recordings/` folder. It uses Matplotlib for maximum stability on ARM-based systems.
 
-* 1h / 3h / 6h: Volle Auflösung für Detailanalysen.
-* 12h / 24h: Automatisches Downsampling zur Entlastung des Browsers.
+```bash
+python3 generate_heatmap.py
 
-## Datenbank-Struktur
+```
 
-Die Tabelle frequency_spectrum ist wie folgt aufgebaut:
+## System Integration (systemd)
 
-| Spalte | Typ | Beschreibung |
+To ensure both the Web App and the Heatmap Generator run automatically after a reboot, it is recommended to use systemd services.
+
+Example for the Heatmap Service (`/etc/systemd/system/solar-heatmap.service`):
+
+```ini
+[Unit]
+Description=SolarMonitor Heatmap Generator
+After=postgresql.service
+
+[Service]
+ExecStart=/home/pi/SolarMonitor-RTL/venv/bin/python3 /home/pi/SolarMonitor-RTL/generate_heatmap.py
+WorkingDirectory=/home/pi/SolarMonitor-RTL
+User=pi
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+
+```
+
+## Database Structure
+
+The `frequency_spectrum` table stores the raw data:
+
+| Column | Type | Description |
 | --- | --- | --- |
-| timestamp | TIMESTAMP | Messzeitpunkt |
-| frequency | DOUBLE PRECISION | Frequenz in MHz |
-| power | DOUBLE PRECISION | Pegel in dB |
+| **timestamp** | TIMESTAMP | Time of measurement (UTC/Local) |
+| **frequency** | DOUBLE PRECISION | Center frequency in MHz |
+| **power** | DOUBLE PRECISION | Measured signal level in dB |
 
-Ein Index auf die Spalte timestamp beschleunigt die Abfragen bei großen Datenmengen.
+**Optimization:**
+To maintain query speed as the database grows, an index on the timestamp column is essential:
+`CREATE INDEX idx_timestamp ON frequency_spectrum (timestamp);`
 
-## Visualisierung
+## Visualization
 
-Die Heatmap nutzt die Viridis Farbskala, optimiert auf einen Bereich von -50 dB bis -20 dB, um solare Aktivitäten vom Hintergrundrauschen abzuheben.
+The heatmap is calibrated to a color range of **-50 dB to -20 dB** (Viridis scale). This specific range is optimized to distinguish solar radio bursts (Type II/III) from the typical RF background noise of the RTL-SDR hardware.
