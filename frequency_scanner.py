@@ -16,17 +16,29 @@ def run_scan():
     load_dotenv()
     
     # Konfiguration aus .env
-    f_start = float(os.getenv('SOLAR_FREQ_START', 26.0))
-    f_end = float(os.getenv('SOLAR_FREQ_END', 80.0))
     gain_val = os.getenv('RTL_GAIN', '25.4')
     device_idx = int(os.getenv('RTL_DEVICE_INDEX', 0))
     
-    logger.info(f"🚀 Scan gestartet: {f_start} - {f_end} MHz")
+    # Zeit-Logik für 5-Minuten-Fenster
+    minute = datetime.now().minute
+    
+    # Diagnose-Fenster: 0-4, 20-24, 40-44 Minuten der Stunde
+    if (0 <= minute <= 4) or (20 <= minute <= 24) or (40 <= minute <= 44):
+        f_start = 88.0
+        f_end = 108.0
+        current_band = "Diagnostic_FM"
+        logger.info(f"🔍 Diagnostic-Scan Fenster ({minute}m): {f_start} - {f_end} MHz")
+    else:
+        # Standard Solar-Bereich aus .env
+        f_start = float(os.getenv('SOLAR_FREQ_START', 26.0))
+        f_end = float(os.getenv('SOLAR_FREQ_END', 80.0))
+        current_band = "Solar_Radio"
+        logger.info(f"🚀 Solar-Scan Modus ({minute}m): {f_start} - {f_end} MHz")
 
     try:
         rtl_power_path = shutil.which('rtl_power') or '/usr/bin/rtl_power'
-        # Integrationszeit 1s für kompletten Sweep
-        freq_range = f"{int(f_start * 1e6)}:{int(f_end * 1e6)}:100000,1s"
+        # Integrationszeit auf 2s erhöht für bessere Signalqualität
+        freq_range = f"{int(f_start * 1e6)}:{int(f_end * 1e6)}:100000,2s"
         
         cmd = [rtl_power_path, '-f', freq_range, '-g', str(gain_val), '-d', str(device_idx), '-1']
         
@@ -39,7 +51,6 @@ def run_scan():
         frequencies = []
         power_values = []
         
-        # PARSING LOGIK für test_scan.csv Format
         for line in result.stdout.strip().split('\n'):
             parts = line.split(',')
             if len(parts) < 7: continue
@@ -48,16 +59,13 @@ def run_scan():
             e_freq = float(parts[3])
             num_bins = int(parts[5])
             
-            # Extrahiere genau num_bins Werte ab Spalte 6
             bin_powers = [float(x) for x in parts[6:6+num_bins]]
-            
-            # Erzeuge passgenaue Frequenzen für diesen Block
             freq_array = np.linspace(s_freq, e_freq, len(bin_powers), endpoint=False)
             
             frequencies.extend(freq_array / 1e6)
             power_values.extend(bin_powers)
 
-        # Datenbank-Upload
+        # Datenbank-Verbindung
         conn = psycopg2.connect(
             host=os.getenv('POSTGRES_HOST'),
             database=os.getenv('POSTGRES_DB'),
@@ -68,7 +76,7 @@ def run_scan():
         
         timestamp = datetime.now()
         data_points = [
-            (timestamp, "Solar Radio", float(f), float(p), 'rtl')
+            (timestamp, current_band, float(f), float(p), 'rtl')
             for f, p in zip(frequencies, power_values)
         ]
         
@@ -79,7 +87,7 @@ def run_scan():
                 data_points
             )
             conn.commit()
-            logger.info(f"✅ {len(data_points)} Punkte in DB geschrieben (bis {max(frequencies):.2f} MHz)")
+            logger.info(f"✅ {len(data_points)} Punkte als '{current_band}' gespeichert.")
         
         cursor.close()
         conn.close()
