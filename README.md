@@ -1,3 +1,4 @@
+veraltet.. bedarf der überarbeitung.....
 
 # SolarMonitor-RTL
 
@@ -33,7 +34,7 @@ cd SolarMonitor-RTL
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-pip install astral  # New dependency for solar calculations
+
 
 ```
 
@@ -85,12 +86,4 @@ To eliminate "brightness stripes" in your heatmap caused by gain changes, use th
 
 ---
 
-## Uninstallation
-
-To remove all installed services and timers:
-
-```bash
-chmod +x uninstall_services.sh
-./uninstall_services.sh
-
-```
+t.b.c.
