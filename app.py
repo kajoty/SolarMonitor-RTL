@@ -4,122 +4,135 @@ import pandas as pd
 from sqlalchemy import create_engine
 import plotly.graph_objects as go
 import plotly.utils
-from flask import Flask, render_template_string, request
+from flask import Flask, render_template_string, request, send_from_directory
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
 app = Flask(__name__)
+
+# Verzeichnis für die generierten Bilder (Heatmaps/Plots)
+OUTPUT_DIR = "recordings"
+
 db_url = f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@{os.getenv('POSTGRES_HOST')}/{os.getenv('POSTGRES_DB')}"
 engine = create_engine(db_url)
 
-def get_data(hours=2, band="Solar_Radio"):
+# Route um die statischen Bilder aus dem recordings-Ordner zu servieren
+@app.route('/recordings/<path:filename>')
+def serve_recordings(filename):
+    return send_from_directory(OUTPUT_DIR, filename)
+
+def get_stats():
+    """Holt aktuelle Max/Avg Werte für die Info-Boxen."""
     try:
-        # Filtert nun dynamisch nach dem gewünschten Band
-        query = f"""
-            SELECT timestamp, frequency, power 
+        query = """
+            SELECT band_name, MAX(power) as max_p, AVG(power) as avg_p 
             FROM frequency_spectrum 
-            WHERE timestamp > NOW() - INTERVAL '{hours} hours'
-            AND band_name = '{band}'
-            ORDER BY timestamp DESC
+            WHERE timestamp > NOW() - INTERVAL '5 minutes'
+            GROUP BY band_name
         """
         df = pd.read_sql(query, engine)
-        
-        if not df.empty:
-            df['frequency'] = df['frequency'].round(1)
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
-            
-            if hours > 6:
-                all_times = sorted(df['timestamp'].unique())
-                keep_times = all_times[::2] 
-                df = df[df['timestamp'].isin(keep_times)]
-                
-        return df
-    except Exception as e:
-        print(f"DB Error: {e}")
-        return pd.DataFrame()
+        stats = {}
+        for _, row in df.iterrows():
+            stats[row['band_name']] = {
+                'max': round(row['max_p'], 1),
+                'avg': round(row['avg_p'], 1)
+            }
+        return stats
+    except:
+        return {}
 
-def create_heatmap(df, title, colorscale='Inferno'):
-    if df.empty:
-        return None
-    
-    pivot_df = df.pivot_table(index='timestamp', columns='frequency', values='power', aggfunc='mean')
-    
-    fig = go.Figure(data=go.Heatmap(
-        z=pivot_df.values.tolist(),
-        x=pivot_df.columns.tolist(), 
-        y=pivot_df.index.tolist(),
-        colorscale=colorscale,
-        colorbar=dict(title="dB"),
-        hovertemplate='Frequenz: %{x} MHz<br>Zeit: %{y}<br>Power: %{z} dB<extra></extra>'
-    ))
-
-    fig.update_layout(
-        title=title,
-        template="plotly_dark",
-        xaxis=dict(title="Frequenz [MHz]", type='linear'),
-        yaxis=dict(title="Zeit", type='date', autorange="reversed"),
-        height=800
-    )
-    return json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
-
-# Basis-Template für beide Seiten
+# Modernes HTML Template basierend auf der solar.html
 HTML_TEMPLATE = """
 <!DOCTYPE html>
-<html>
-    <head>
-        <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-        <style>
-            body { background:#111; color:white; font-family:sans-serif; margin:0; }
-            .nav { padding: 15px; background: #222; display: flex; gap: 10px; border-bottom: 1px solid #444; align-items: center; }
-            .nav-right { margin-left: auto; display: flex; gap: 10px; }
-            button { padding: 8px 15px; cursor: pointer; background: #444; color: white; border: none; border-radius: 4px; }
-            button:hover { background: #666; }
-            button.active { background: #007bff; }
-            .brand { font-weight: bold; color: #ff9800; margin-right: 20px; }
-        </style>
-    </head>
-    <body>
-        <div class="nav">
-            <span class="brand">SolarMonitor</span>
-            <button onclick="location.href='/?hours={{h}}'" class="{{'active' if mode=='solar' else ''}}">Solar-Daten</button>
-            <button onclick="location.href='/diagnostic?hours={{h}}'" class="{{'active' if mode=='diag' else ''}}">System-Diagnose (UKW)</button>
-            
-            <div class="nav-right">
-                <button onclick="location.href='?hours=1'">1h</button>
-                <button onclick="location.href='?hours=6'">6h</button>
-                <button onclick="location.href='?hours=24'">24h</button>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solar Monitor Pro - Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .glass { background: rgba(17, 24, 39, 0.8); backdrop-filter: blur(12px); }
+        body { background: #000; }
+    </style>
+</head>
+<body class="text-gray-100 min-h-screen p-4 flex flex-col items-center gap-6">
+
+    <div class="w-full max-w-5xl p-6 glass rounded-3xl border border-gray-800 shadow-2xl">
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-2xl font-bold text-orange-500">Solar Monitor <span class="text-gray-500 font-light italic">Live</span></h1>
+            <div class="flex items-center gap-2">
+                <span class="text-xs text-gray-500 font-mono">SYSTEM ONLINE</span>
+                <div class="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>
             </div>
         </div>
-        {% if graphJSON %}
-            <div id="chart"></div>
-            <script>
-                var graphs = {{ graphJSON | safe }};
-                Plotly.newPlot('chart', graphs.data, graphs.layout, {responsive: true});
-            </script>
-        {% else %}
-            <div style="padding: 50px; text-align: center;">
-                <h2>Keine Daten für diesen Zeitraum gefunden.</h2>
-                <p>Modus: {{ "Solar" if mode=='solar' else "Diagnose" }}</p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+            <div class="bg-gray-900/50 p-4 rounded-xl border border-gray-800 relative overflow-hidden">
+                <div class="absolute left-0 top-0 bottom-0 w-1 bg-blue-500"></div>
+                <h3 class="text-xs font-bold text-blue-400 uppercase mb-3 ml-2">FM Referenz (UKW)</h3>
+                <div class="grid grid-cols-2 gap-4 ml-2">
+                    <div><p class="text-[10px] text-gray-500 uppercase">Peak</p><div class="text-xl font-mono">{{ stats.get('Diagnostic_FM', {}).get('max', '--') }} dB</div></div>
+                    <div><p class="text-[10px] text-gray-500 uppercase">Avg</p><div class="text-xl font-mono text-gray-400">{{ stats.get('Diagnostic_FM', {}).get('avg', '--') }} dB</div></div>
+                </div>
             </div>
-        {% endif %}
-    </body>
+            <div class="bg-gray-900/50 p-4 rounded-xl border border-gray-800 relative overflow-hidden">
+                <div class="absolute left-0 top-0 bottom-0 w-1 bg-orange-500"></div>
+                <h3 class="text-xs font-bold text-orange-400 uppercase mb-3 ml-2">Solar Radio (26-80 MHz)</h3>
+                <div class="grid grid-cols-2 gap-4 ml-2">
+                    <div><p class="text-[10px] text-gray-500 uppercase">Max</p><div class="text-xl font-mono">{{ stats.get('Solar_Radio', {}).get('max', '--') }} dB</div></div>
+                    <div><p class="text-[10px] text-gray-500 uppercase">Floor</p><div class="text-xl font-mono text-gray-400">{{ stats.get('Solar_Radio', {}).get('avg', '--') }} dB</div></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="mb-12">
+            <h2 class="text-lg font-semibold uppercase tracking-wider text-blue-400 mb-6 border-b border-gray-800 pb-2">Spektrum Analyse</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                <div class="relative bg-black rounded-xl border border-gray-800 overflow-hidden">
+                    <div class="absolute top-3 left-3 bg-orange-600/80 text-[10px] px-2 py-1 rounded font-bold z-10">VIEW: 1 STD SOLAR</div>
+                    <img src="/recordings/latest_1h_Solar.png" class="w-full h-auto">
+                </div>
+
+                <div class="relative bg-black rounded-xl border border-gray-800 overflow-hidden">
+                    <div class="absolute top-3 left-3 bg-orange-600/80 text-[10px] px-2 py-1 rounded font-bold z-10">VIEW: 6 STD SOLAR</div>
+                    <img src="/recordings/latest_6h_Solar.png" class="w-full h-auto">
+                </div>
+
+                <div class="relative bg-black rounded-xl border border-gray-800 overflow-hidden md:col-span-2">
+                    <div class="absolute top-3 left-3 bg-blue-600/80 text-[10px] px-2 py-1 rounded font-bold z-10">VIEW: 48 STD DYNAMIK VERLAUF</div>
+                    <img src="/recordings/signal_solar_dynamic_48h.png" class="w-full h-auto">
+                </div>
+
+                <div class="relative bg-black rounded-xl border border-gray-800 overflow-hidden md:col-span-2">
+                    <div class="absolute top-3 left-3 bg-orange-600/80 text-[10px] px-2 py-1 rounded font-bold z-10">VIEW: 24 STD SOLAR WATERFALL</div>
+                    <img src="/recordings/latest_24h_Solar.png" class="w-full h-auto">
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center text-gray-600 text-[10px] font-mono border-t border-gray-800 pt-4">
+            LETZTES UPDATE: {{ now }} | AUTO-REFRESH JEDE MINUTE
+        </div>
+    </div>
+
+    <script>
+        // Automatischer Reload alle 60 Sekunden
+        setTimeout(() => { location.reload(); }, 60000);
+    </script>
+</body>
 </html>
 """
 
 @app.route('/')
 def index():
-    hours = request.args.get('hours', default=2, type=int)
-    df = get_data(hours, "Solar_Radio")
-    graphJSON = create_heatmap(df, f"Solar-Spektrum (26-80 MHz) - Letzte {hours}h", 'Inferno')
-    return render_template_string(HTML_TEMPLATE, graphJSON=graphJSON, h=hours, mode='solar')
-
-@app.route('/diagnostic')
-def diagnostic():
-    hours = request.args.get('hours', default=2, type=int)
-    df = get_data(hours, "Diagnostic_FM")
-    # Diagnostic bekommt eine andere Farbskala (Viridis) zur optischen Trennung
-    graphJSON = create_heatmap(df, f"Hardware-Check (UKW Referenz) - Letzte {hours}h", 'Viridis')
-    return render_template_string(HTML_TEMPLATE, graphJSON=graphJSON, h=hours, mode='diag')
+    current_stats = get_stats()
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    return render_template_string(HTML_TEMPLATE, stats=current_stats, now=timestamp)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    # Sicherstellen, dass der recordings Ordner existiert
+    if not os.path.exists(OUTPUT_DIR):
+        os.makedirs(OUTPUT_DIR)
+    app.run(host='0.0.0.0', port=5001)
