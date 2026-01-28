@@ -1,21 +1,21 @@
+
 # SolarMonitor-RTL
 
 An automated radio spectrometer for monitoring solar radio bursts in the frequency range of 26 MHz to 80 MHz. The system utilizes an RTL-SDR dongle, stores data in a PostgreSQL database, and visualizes it via an interactive web interface.
 
-## Features
+## New Features (v2.0)
 
-* **Continuous Spectrum Logging:** Captures signal strength (dB) across the entire band.
-* **Long-term Archiving:** Persistent storage in PostgreSQL without automatic deletion.
-* **Interactive Waterfall:** Web application featuring Plotly heatmaps with zoom and pan.
-* **Automated Image Export:** Background service to generate PNG heatmaps every few hours using Matplotlib.
-* **Systemd Integration:** Professional automation using systemd services and timers for high reliability.
+* **Dynamic Gain Control:** Automatically calibrates the RTL-SDR gain by analyzing FM broadcast signals to prevent clipping and maximize sensitivity.
+* **Astronomical Awareness:** Calculates local solar phases (Day, Night, Twilight) using GPS coordinates to adapt scan intervals and provide context for solar events.
+* **Signal Normalization:** Stores applied gain values alongside power levels to allow "drift-free" visualization by normalizing data (Power - Gain).
+* **Smart Diagnostic Windows:** Periodically switches to the FM band to recalibrate the hardware without losing significant solar monitoring time.
 
 ## System Architecture
 
-1. **Data Source:** `rtl_power` scans the spectrum via a triggered systemd timer.
-2. **Database:** PostgreSQL for high-performance retrieval of signal data.
-3. **Backend:** Flask & SQLAlchemy providing the API and web server.
-4. **Automated Export:** Background script for periodic image generation in `recordings/`.
+1. **Data Source:** `rtl_power` scans the spectrum, controlled by a Python wrapper that manages gain and frequency bands.
+2. **Database:** PostgreSQL stores raw signal data, applied gain, and astronomical metadata.
+3. **Astronomy Engine:** `astral` library provides precise sunrise/sunset times for the sensor location.
+4. **Backend:** Flask & SQLAlchemy providing the API and web server.
 
 ## Installation
 
@@ -33,54 +33,64 @@ cd SolarMonitor-RTL
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+pip install astral  # New dependency for solar calculations
 
 ```
 
-### 3. Automated Service Setup
+### 3. Environment Configuration (`.env`)
 
-We provide a setup script to install the necessary background services:
+Create a `.env` file with your location and database credentials:
 
 ```bash
-chmod +x setup_services.sh
-./setup_services.sh
+POSTGRES_HOST=192.168.178.100
+POSTGRES_DB=solarmonitor
+RTL_GAIN=25.4  # Default starting gain
+LATITUDE=52.52
+LONGITUDE=13.40
+
+```
+
+## Database Structure
+
+The `frequency_spectrum` table has been upgraded to track hardware and astronomical states:
+
+| Column | Type | Description |
+| --- | --- | --- |
+| **timestamp** | TIMESTAMP | Time of measurement |
+| **band_name** | TEXT | "Solar_Radio" or "Diagnostic_FM" |
+| **frequency** | DOUBLE PRECISION | Center frequency in MHz |
+| **power** | DOUBLE PRECISION | Measured signal level in dB |
+| **applied_gain** | DOUBLE PRECISION | The hardware gain used for this sample |
+| **sun_phase** | VARCHAR(20) | "day", "night", or "twilight" |
+
+**Database Upgrade SQL:**
+
+```sql
+ALTER TABLE frequency_spectrum ADD COLUMN applied_gain FLOAT DEFAULT 0.0;
+ALTER TABLE frequency_spectrum ADD COLUMN sun_phase VARCHAR(20);
+CREATE INDEX idx_spectrum_gain_phase ON frequency_spectrum (timestamp DESC, sun_phase);
 
 ```
 
 ## Usage
 
-### Web Interface
+### Dynamic Gain Logic
 
-The dashboard is accessible at `http://<YOUR-PI-IP>:5000`. It provides real-time visualization and historical data navigation.
+The scanner automatically switches to **Diagnostic_FM** (88-108 MHz) every 30 minutes (10 minutes during twilight). It analyzes the peak power of local radio stations and adjusts the `gain_state.txt` to keep the hardware in its linear range (Target: -12 dB peak).
 
-### Data Acquisition
+### Visualization & Normalization
 
-The scanner is controlled by `solarmonitor-rtl.timer`. By default, it triggers a scan every 5 minutes. You can adjust the frequency by editing the timer file:
-`sudo nano /etc/systemd/system/solarmonitor-rtl.timer`
+To eliminate "brightness stripes" in your heatmap caused by gain changes, use the following SQL logic in your visualization tool (e.g., Grafana):
+`SELECT timestamp, frequency, (power - applied_gain) AS normalized_power FROM frequency_spectrum;`
+
+---
 
 ## Uninstallation
 
-To remove all installed services and timers from your system, use the provided uninstallation script:
+To remove all installed services and timers:
 
 ```bash
 chmod +x uninstall_services.sh
 ./uninstall_services.sh
 
 ```
-
-## Database Structure
-
-The `frequency_spectrum` table stores the raw data:
-
-| Column | Type | Description |
-| --- | --- | --- |
-| **timestamp** | TIMESTAMP | Time of measurement |
-| **frequency** | DOUBLE PRECISION | Center frequency in MHz |
-| **power** | DOUBLE PRECISION | Measured signal level in dB |
-
-**Optimization:**
-Ensure an index is created for fast retrieval:
-`CREATE INDEX idx_timestamp ON frequency_spectrum (timestamp);`
-
-## Visualization
-
-The heatmap is calibrated to a color range of **-50 dB to -20 dB** (Viridis scale), optimized to highlight solar radio bursts (Type II/III) against background noise.
