@@ -14,7 +14,9 @@ app = Flask(__name__)
 # Verzeichnis für die generierten Bilder (Heatmaps/Plots)
 OUTPUT_DIR = "recordings"
 
-db_url = f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@{os.getenv('POSTGRES_HOST')}/{os.getenv('POSTGRES_DB')}"
+# [cite_start]Datenbank-Konfiguration mit Port 5433 [cite: 1]
+db_port = os.getenv('POSTGRES_PORT', '5433') 
+db_url = f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@{os.getenv('POSTGRES_HOST')}:{db_port}/{os.getenv('POSTGRES_DB')}"
 engine = create_engine(db_url)
 
 # Route um die statischen Bilder aus dem recordings-Ordner zu servieren
@@ -39,7 +41,8 @@ def get_stats():
                 'avg': round(row['avg_p'], 1)
             }
         return stats
-    except:
+    except Exception as e:
+        print(f"Fehler bei Stats-Abfrage: {e}")
         return {}
 
 # Modernes HTML Template basierend auf der solar.html

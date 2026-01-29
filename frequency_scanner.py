@@ -120,8 +120,6 @@ def run_scan():
             if len(parts) < 7: continue
             
             s_f, e_f, n_bins = float(parts[2]), float(parts[3]), int(parts[5])
-            
-            # Korrigierte Zeile: n_bins statt num_bins
             bin_powers = [float(x) for x in parts[6:6+n_bins] if x.strip()]
             
             freq_array = np.linspace(s_f, e_f, len(bin_powers), endpoint=False)
@@ -135,10 +133,10 @@ def run_scan():
                 save_new_gain(new_gain)
                 logger.info(f"⚖️ Gain angepasst: {gain_val:.1f} -> {new_gain:.1f} (Peak war {max(power_values):.1f}dB)")
 
-        # 5. Datenbank-Speicherung
+        # [cite_start]5. Datenbank-Speicherung mit Port 5433 [cite: 1]
         conn = psycopg2.connect(
             host=os.getenv('POSTGRES_HOST'),
-            port=os.getenv('POSTGRES_PORT', '5432'),
+            port=os.getenv('POSTGRES_PORT', '5433'),
             database=os.getenv('POSTGRES_DB'),
             user=os.getenv('POSTGRES_USER'),
             password=os.getenv('POSTGRES_PASSWORD')

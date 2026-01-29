@@ -12,7 +12,8 @@ load_dotenv()
 OUTPUT_DIR = "recordings"
 INTERVAL_SECONDS = 300 
 
-db_port = os.getenv('POSTGRES_PORT', '5432') # Fallback auf 5432
+# [cite_start]Port auf 5433 eingestellt [cite: 1]
+db_port = os.getenv('POSTGRES_PORT', '5433') 
 db_url = f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@{os.getenv('POSTGRES_HOST')}:{db_port}/{os.getenv('POSTGRES_DB')}"
 engine = create_engine(db_url)
 
